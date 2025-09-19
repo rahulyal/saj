@@ -1,3 +1,5 @@
+const sajKVStore = {}
+
 const evaluate = (expression) => {
 	if (typeof expression === "number" || typeof expression === "string") {
 		// console.log(expression);
@@ -13,6 +15,11 @@ const evaluate = (expression) => {
 			case "/":
 				return evaluate(expression.left) / evaluate(expression.right)
 		}
+	} else if (expression.type === "definition") {
+		sajKVStore[expression.key] = expression.value;
+		return sajKVStore[expression.key];
+	} else if (expression.type === "variable") {
+		return sajKVStore[expression.key];
 	}
 };
 
@@ -92,32 +99,54 @@ const parser = (tokens) => {
 	// }
 	// Now should parse tokens into parsedTokens first, and then make meaning of the complete expression
 	// fuck that feels complex as hell
+	let parsed = {}
 	if (tokens[0] === "(") {
 		switch (tokens[1]) {
 		case "+":
 		case "-":
 		case "*":
 		case "/":
-			const parsed = {
+			const left = parseFloat(tokens[2]);
+			const leftValue = !isNaN(left) ? left : tokens[2];
+			const right = parseFloat(tokens[3]);
+			const rightValue = !isNaN(right) ? right : tokens[3];
+			parsed = {
 				type: "operation",
 				op: tokens[1],
-				left: tokens[2],
-				right: tokens[3]
+				left: leftValue,
+				right: rightValue
 			}
+			break;
 			// console.log(parsed);
-			return parsed
+			
+		case "define" :
+			const num = parseFloat(tokens[3]);
+			const value = !isNaN(num) ? num : tokens[3]
+			parsed = {
+				type: "definition",
+				key: tokens[2],
+				value: value
+			}
+			break;
 		}
 		
 	} else {
 		const fullToken = tokens.join("");
 		// console.log(fullToken);
-		const num = parseFloat(fullToken)
+		
+		const num = parseFloat(fullToken);
 		if (!isNaN(num)) {
 			return num
-		} else {
+		} else if (fullToken.startsWith('"') && fullToken.endsWith('"')) {
 			return fullToken
+		} else {
+			parsed = {
+				type: "variable",
+				key: tokens[0]
+			}
 		}
 	}
+	return parsed
 };
 
 // const tokens = [ "(", "+", "2", "3", ")" ]
@@ -133,7 +162,9 @@ const repl = () => {
 
 		try {
 			const tokens = tokenizer(input);
+			console.log(tokens);
 			const parsed = parser(tokens);
+			console.log(parsed);
 			const result = evaluate(parsed);
 			console.log(result);
 		} catch (e) {
