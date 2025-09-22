@@ -1,5 +1,41 @@
-const sajKVStore = {}
+/**
+Data types:
 
+type expression = procedure | definition | variable | operation | procedure_call
+
+type variable = {
+	type: "variable",
+	key: string
+}
+
+type operation = {
+	type: "operation",
+	op: string    // ["+","-","*","/"];
+	operands: []  // this used to be previously left and right
+}
+
+type definition = {
+	type: "definition",
+	key: variable,
+	value: expression - either an operation or a procedure or a value
+}
+
+type procedure = {
+	type: "procedure";
+	inputs: [];
+	body: expression;
+}
+
+type procedure_call = {
+	type: "procedure_call";
+	func_name: variable;
+	args: [];
+	return: expression
+}
+*/
+const KVStore = {}; // GLOBAL SCOPE
+
+// still needs to be updated to deal with operands array instead of left and right
 const evaluate = (expression) => {
 	if (typeof expression === "number" || typeof expression === "string") {
 		// console.log(expression);
@@ -7,151 +43,274 @@ const evaluate = (expression) => {
 	} else if (expression.type === "operation") {
 		switch (expression.op) {
 			case "+":
-				return evaluate(expression.left) + evaluate(expression.right)
+				return expression.operands.map(evaluate).reduce(((acc, curr) => acc+curr),0);
+				// return evaluate(expression.left) + evaluate(expression.right)
 			case "-":
-				return evaluate(expression.left) - evaluate(expression.right)
+				return expression.operands.map(evaluate).reduce(((acc, curr) => acc-curr));
+				// return evaluate(expression.left) - evaluate(expression.right)
 			case "*":
-				return evaluate(expression.left) * evaluate(expression.right)
+				return expression.operands.map(evaluate).reduce(((acc, curr) => acc*curr), 1);
+				// return evaluate(expression.left) * evaluate(expression.right)
 			case "/":
-				return evaluate(expression.left) / evaluate(expression.right)
+				return expression.operands.map(evaluate).reduce(((acc, curr) => acc/curr));
+				// return evaluate(expression.left) / evaluate(expression.right)
 		}
 	} else if (expression.type === "definition") {
-		sajKVStore[expression.key] = expression.value;
-		return sajKVStore[expression.key];
+		const keyName = expression.key.key;
+		KVStore[keyName] = expression.value;
+		// console.log("Stored:", keyName, "=", KVStore[keyName]);
+		return null;
 	} else if (expression.type === "variable") {
-		return sajKVStore[expression.key];
+		const keyName = expression.key;
+		// console.log("Looking up:", keyName, "found:", KVStore[keyName]);
+		return KVStore[keyName];
+	} else if (expression.type === "procedure") {
+		return `#<${expression.type}> \n inputs: ${expression.inputs} \n body: ${expression.body}`;
+	} else if (expression.type === "procedure_call") {
+		const func = KVStore[expression.func_name.key];
+		// make the function for the actual function, and apply args with it, and handle errors
+		const inputs = func.inputs;
+		const funcExpression = func.body;
+		let savedValues = {};
+		inputs.map((e,i)=> {
+			savedValues[e] = KVStore[e];
+			KVStore[e] = expression.args[i];	
+		})
+		const res = evaluate(funcExpression);
+		inputs.map((e)=> KVStore[e] = savedValues[e]);
+		return res;
 	}
 };
+
+
+
+//////////////////////////////////////////////////////////////////
+//// TOKENIZER
+//////////////////////////////////////////////////////////////////
 
 /**
 Tokenizer: turns strings into meaningful tokens that can be parsed
 input: string
 output: Token[] -> Token : string  
 
+Token cannot contain spaces until it is a string literal " ";
+every left paran should be closed with a right paran until in a string literal
+
 (+ 7 8)
+instead of add token first and decide later approach, we are moving towards a decide first
+- only need to decide at lparen, rparen, and spaces, and collect tokens accordingly
 */
-const tokenizer = (readline) => {
-	let tokens = [];
+
+const tokenizer = (input) => {
+	const inputLength = input.length;
+	const tokens = [];
 	let token = "";
-	for (let i = 0; i < readline.length; i++) {
-		token += readline[i];
-		if (readline[i] === "(" || readline[i] === ")") {
-			if (readline[i] === ")") {
-				if (token.length > 1) {
-					tokens.push(token.slice(0, -1))
-					tokens.push(")")
-					token = ""
-				}
-			} else {
+	for (let i = 0; i < inputLength; i++) {
+		let curr = input[i];
+		// console.log(token, curr, tokens);
+		if (curr === "(" || curr === ")") {
+			if (token) {
 				tokens.push(token);
 				token = "";
 			}
-		} else if (readline[i] === " ") {
+			tokens.push(curr);
+		} else if (curr === " ") {
 			if (token) {
-				// let us not worry about parsing, just stick to tokenizing into meaningful strings
-				// even if strings or numbers, not the tokenizers job, just put the string into readable
-				// data chunks that can be parsed and evaluated later on
-				// const num = parseFloat(token);
-				// if (num === !NaN) {
-				//
-				// }
-				tokens.push(token.slice(0,-1))
-				token = ""
+				tokens.push(token);
+				token = "";
 			}
+		} else {
+			token += curr;
 		}
 	}
 	if (token) {
-		tokens.push(token)
+		tokens.push(token);
 	}
-	return tokens
+	return tokens;
 }
+
+
+//////////////////////////////////////
 
 // string must be processed like this in scheme interpretor find the reason behind the decision
 // const expression1 = '"test"';
-// const expression = "(+ 2 3)"
-// console.log(tokenizer(expression));
+// const expression1 = "(+ 2 3)"
+// const testExpression = "(lambda (x) (* x x))"
+// const testExpression = "(define square (lambda (x) (* x x)))"
+// console.log(tokenizer(expression1));
+
+///////////////////////////////////////////////////////////////////
+//// PARSER
+///////////////////////////////////////////////////////////////////
 
 /**
-Parser -> reads the tokens (Token[]), which are just strings still, 
-but in meaningful parsable sense
+Parser -> reads the tokens (Token[]) and gives the output as parsedData
+input: Token[]
+output: parsedData 
 
--- even this is fucking complex 
-type ParsedToken = {
-	value: string | number;
-	type: "LPAREN" | "SYMBOL" | "NUMBER" | "RPAREN" | "STRING" ;
+type parsedData = {
+	parsedContent: Object;
+	nextIndex: number
 }
--- just simply based on the structure of the initial draft (+ 2 3 ) => 
-let us get this case to work first, 
-- always solve the most simple problem case first
-- then go on until you solve every other case
 
 */
-const parser = (tokens) => {
-	// OLD PARSER - for basic string and number case
-	// console.log(readline);
-	// const num = parseFloat(readline);
-	// if (readline.startsWith("(") && readline.endsWith(")")) {
-	// 	processProcedure(readline);
-	// } else if (readline.startsWith('"') && readline.endsWith('"')) {
-	// 	return readline;
-	// } else if (!isNaN(num)) {
-	// 	return num;
-	// }
-	// Now should parse tokens into parsedTokens first, and then make meaning of the complete expression
-	// fuck that feels complex as hell
-	let parsed = {}
-	if (tokens[0] === "(") {
-		switch (tokens[1]) {
-		case "+":
-		case "-":
-		case "*":
-		case "/":
-			const left = parseFloat(tokens[2]);
-			const leftValue = !isNaN(left) ? left : tokens[2];
-			const right = parseFloat(tokens[3]);
-			const rightValue = !isNaN(right) ? right : tokens[3];
-			parsed = {
-				type: "operation",
-				op: tokens[1],
-				left: leftValue,
-				right: rightValue
-			}
-			break;
-			// console.log(parsed);
-			
-		case "define" :
-			const num = parseFloat(tokens[3]);
-			const value = !isNaN(num) ? num : tokens[3]
-			parsed = {
-				type: "definition",
-				key: tokens[2],
-				value: value
-			}
-			break;
-		}
-		
+
+const parseAtom = (atom) => {
+	const num = parseFloat(atom);
+	if (atom.startsWith('"') && atom.endsWith('"')) {
+		return atom;
+	} else if (!isNaN(num)) {
+		return num
 	} else {
-		const fullToken = tokens.join("");
-		// console.log(fullToken);
-		
-		const num = parseFloat(fullToken);
-		if (!isNaN(num)) {
-			return num
-		} else if (fullToken.startsWith('"') && fullToken.endsWith('"')) {
-			return fullToken
-		} else {
-			parsed = {
-				type: "variable",
-				key: tokens[0]
-			}
+		return {
+			type: "variable",
+			key: atom
 		}
 	}
-	return parsed
-};
+}
 
-// const tokens = [ "(", "+", "2", "3", ")" ]
+const parser = (tokens, startIndex = 0) => {
+	let parsed = {};
+	// console.log(tokens);
+	const operations = ["+", "-", "*", "/"];
+	if (tokens[startIndex] !== "(") {
+		const parsedAtom = parseAtom(tokens[startIndex]);
+		return {parsedContent: parsedAtom, nextIndex: startIndex+1};
+	} else {
+		startIndex += 1;
+		const op = tokens[startIndex];
+		// console.log(op);
+		switch (true) {
+			case operations.includes(op):
+				// implement how operations must be treated
+				parsed = {
+					type: "operation",
+					op: op,
+					operands: []
+				}
+				startIndex += 1;
+				while (tokens[startIndex] !== ")") {
+					const {
+						parsedContent,
+						nextIndex
+					} = parser(tokens, startIndex);
+					parsed.operands.push(parsedContent)
+					startIndex = nextIndex;
+				}
+				// console.log(parsed);
+				return {
+					parsedContent: parsed, nextIndex: startIndex +1
+				};
+			case op === "define":
+				parsed = {
+					type: "definition",
+					key: null,
+					value: null
+				};
+				startIndex += 1;
+				if (tokens[startIndex] !== ")") {
+					const {
+						parsedContent,
+						nextIndex
+					} = parser(tokens, startIndex);
+					parsed.key = parsedContent;
+					startIndex = nextIndex;
+				}
+				while (tokens[startIndex] !== ")") {
+					const {
+						parsedContent,
+						nextIndex
+					} = parser(tokens, startIndex);
+					parsed.value = parsedContent
+					startIndex = nextIndex;
+				}
+				return {
+					parsedContent: parsed, nextIndex: startIndex +1
+				};
+				// define
+			case op === "lambda":
+				// functions
+				parsed = {
+					type: "procedure",
+					inputs: [],
+					body: null
+				}
+				startIndex += 2;
+				while (tokens[startIndex] !== ")") {
+					parsed.inputs.push(tokens[startIndex]);
+					startIndex += 1;
+				}
+				startIndex += 1;
+				// console.log(parsed, startIndex);
+				while (tokens[startIndex] !== ")") {
+					// console.log(tokens, startIndex);
+					const {
+						parsedContent,
+						nextIndex
+					} = parser(tokens, startIndex);
+					parsed.body = parsedContent;
+					// console.log(parsed.body);
+					startIndex = nextIndex;
+				}
+				return {
+					parsedContent: parsed, nextIndex: startIndex +1
+				};
+			default:
+				// for now using this case as the variable case
+				// console.log(op);
+				const func_name = parseAtom(op);
+				if (func_name.type === "variable") {
+					parsed = {
+						type: "procedure_call",
+						func_name: func_name,
+						args : [],
+						return_value : null,
+					}
+					
+					startIndex += 1;
+					// console.log(parsed, startIndex, tokens[startIndex]);
+					while (tokens[startIndex] !== ")") {
+						const {parsedContent, nextIndex} = parser(tokens, startIndex);
+						parsed.args.push(parsedContent);
+						startIndex = nextIndex;
+					}
+					return {
+						parsedContent: parsed,
+						nextIndex: startIndex +1
+					}
+				}
+				
+		}
+	}
+}
+
+////////////////////////////////
+
+
+// const tokens = [ "(", "+", "2", "3", "4","5", ")" ]
 // const tokens1 = [ "2", "3", "4" ]
-// console.log(parser(tokens1));
+// const tokens = [
+//   "(", "lambda",
+//   "(", "x",
+//   ")", "(",
+//   "*", "x",
+//   "x", ")",
+//   ")"
+// ];
+// const tokens = [ "test" ]
+// const tokens = [
+//   "(", "define", "square",
+//   "(", "lambda", "(",
+//   "x", ")",      "(",
+//   "*", "x",      "x",
+//   ")", ")",      ")"
+// ]
+// const tokens = ["(", "define", "x", "3", ")"]
+// const tokens = ["(", "+", "2", "(", "*", "3", "4", ")","5", ")"];
+// console.log(parser(tokens));
+// const tokens = ["(","square","(","+","2","3",")","5",")"];
+// console.log(parser(tokens));
+
 
 
 const repl = () => {
@@ -162,11 +321,11 @@ const repl = () => {
 
 		try {
 			const tokens = tokenizer(input);
-			console.log(tokens);
+			// console.log(tokens);
 			const parsed = parser(tokens);
-			console.log(parsed);
-			const result = evaluate(parsed);
-			console.log(result);
+			// console.log(parsed);
+			const result = evaluate(parsed.parsedContent);
+			if (result) console.log(result);
 		} catch (e) {
 			console.error(e.message);
 		}
