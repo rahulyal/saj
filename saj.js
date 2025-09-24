@@ -1,6 +1,9 @@
 /**
 Data types:
 
+[-] number, string
+[-] booleans
+
 type expression = procedure | definition | variable | operation | procedure_call
 
 type variable = {
@@ -32,28 +35,54 @@ type procedure_call = {
 	args: [];
 	return: expression
 }
+
+type conditional = {
+	type: "conditional",
+	condition: expression, // this should have a truth value
+	trueReturn: expression,
+	falseReturn: expression
+}
 */
 const KVStore = {}; // GLOBAL SCOPE
 
 // still needs to be updated to deal with operands array instead of left and right
 const evaluate = (expression) => {
-	if (typeof expression === "number" || typeof expression === "string") {
-		// console.log(expression);
+	if (typeof expression === "number" || typeof expression === "string" ) {
 		return expression
 	} else if (expression.type === "operation") {
+		// console.log(expression);
+		let left = null;
+		let right = null;
 		switch (expression.op) {
 			case "+":
 				return expression.operands.map(evaluate).reduce(((acc, curr) => acc+curr),0);
-				// return evaluate(expression.left) + evaluate(expression.right)
 			case "-":
-				return expression.operands.map(evaluate).reduce(((acc, curr) => acc-curr));
-				// return evaluate(expression.left) - evaluate(expression.right)
+				return expression.operands.map(evaluate).reduce((acc, curr) => acc-curr);
 			case "*":
 				return expression.operands.map(evaluate).reduce(((acc, curr) => acc*curr), 1);
-				// return evaluate(expression.left) * evaluate(expression.right)
 			case "/":
-				return expression.operands.map(evaluate).reduce(((acc, curr) => acc/curr));
-				// return evaluate(expression.left) / evaluate(expression.right)
+				return expression.operands.map(evaluate).reduce((acc, curr) => acc/curr);
+			case "=":
+				left = evaluate(expression.operands[0]);
+				right = evaluate(expression.operands[1]);
+				return {
+					type: "boolean",
+					value: (left === right)
+				};
+			case ">":
+				left = evaluate(expression.operands[0]);
+				right = evaluate(expression.operands[1]);
+				return {
+					type: "boolean",
+					value: (left > right)
+				};
+			case "<":
+				left = evaluate(expression.operands[0]);
+				right = evaluate(expression.operands[1]);
+				return {
+					type: "boolean",
+					value: (left < right)
+				};
 		}
 	} else if (expression.type === "definition") {
 		const keyName = expression.key.key;
@@ -74,11 +103,21 @@ const evaluate = (expression) => {
 		let savedValues = {};
 		inputs.map((e,i)=> {
 			savedValues[e] = KVStore[e];
-			KVStore[e] = expression.args[i];	
+			KVStore[e] = evaluate(expression.args[i]);	
 		})
+		// console.log(KVStore, savedValues);
 		const res = evaluate(funcExpression);
 		inputs.map((e)=> KVStore[e] = savedValues[e]);
 		return res;
+	} else if (expression.type === "boolean") {
+		return expression.value;
+	} else if (expression.type === "conditional") {
+		const condition = evaluate(expression.condition);
+		if (condition.value) {
+			return evaluate(expression.trueReturn);
+		} else {
+			return evaluate(expression.falseReturn);
+		}
 	}
 };
 
@@ -157,10 +196,24 @@ type parsedData = {
 
 const parseAtom = (atom) => {
 	const num = parseFloat(atom);
-	if (atom.startsWith('"') && atom.endsWith('"')) {
+	// console.log(num);
+	if (!isNaN(num)) {
+		return num;
+	} else if (atom.startsWith("#")) {
+		if (atom.substring(1) === "true") {
+			return {
+				type: "boolean",
+				value: true
+			}
+		} else if (atom.substring(1) === "false") {
+			return {
+				type: "boolean",
+				value: false
+			}
+		}
+		
+	} else if (atom.startsWith('"') && atom.endsWith('"')) {
 		return atom;
-	} else if (!isNaN(num)) {
-		return num
 	} else {
 		return {
 			type: "variable",
@@ -172,7 +225,7 @@ const parseAtom = (atom) => {
 const parser = (tokens, startIndex = 0) => {
 	let parsed = {};
 	// console.log(tokens);
-	const operations = ["+", "-", "*", "/"];
+	const operations = ["+", "-", "*", "/", "<", ">", "="];
 	if (tokens[startIndex] !== "(") {
 		const parsedAtom = parseAtom(tokens[startIndex]);
 		return {parsedContent: parsedAtom, nextIndex: startIndex+1};
@@ -194,10 +247,9 @@ const parser = (tokens, startIndex = 0) => {
 						parsedContent,
 						nextIndex
 					} = parser(tokens, startIndex);
-					parsed.operands.push(parsedContent)
+					parsed.operands.push(parsedContent);
 					startIndex = nextIndex;
 				}
-				// console.log(parsed);
 				return {
 					parsedContent: parsed, nextIndex: startIndex +1
 				};
@@ -255,6 +307,46 @@ const parser = (tokens, startIndex = 0) => {
 				return {
 					parsedContent: parsed, nextIndex: startIndex +1
 				};
+			case op === "if":
+				//conditional
+				parsed = {
+					type: "conditional",
+					condition: null,
+					trueReturn: null,
+					falseReturn: null
+				}
+				startIndex += 1;
+				// console.log(parsed,startIndex, tokens);
+				while (tokens[startIndex] !== ")") {
+					const {parsedContent, nextIndex} = parser(tokens, startIndex);
+					parsed.condition = parsedContent;
+					startIndex = nextIndex-1;
+					// console.log("-----\n","parsed:\n",parsed,"startIndex:\n",startIndex, "tokens:\n", tokens, "-----\n");
+				}
+				startIndex += 1
+				while (tokens[startIndex] !== ")") {
+					// console.log("-----", startIndex, "-----");
+					const {parsedContent, nextIndex} = parser(tokens, startIndex);
+					parsed.trueReturn = parsedContent;
+					startIndex = nextIndex;
+					if (parsed.trueReturn) {
+						break;
+					}
+					// console.log("-----",parsedContent, startIndex,"-----");
+				}
+				while (tokens[startIndex] !== ")") {
+					const {parsedContent, nextIndex} = parser(tokens, startIndex);
+					parsed.falseReturn = parsedContent;
+					startIndex = nextIndex;
+					if (parsed.falseReturn) {
+						break;
+					}
+				}
+				// console.log("-----",parsed,startIndex, tokens, "-----");
+				return {
+					parsedContent: parsed, nextIndex: startIndex +1
+				};
+				
 			default:
 				// for now using this case as the variable case
 				// console.log(op);
@@ -325,7 +417,7 @@ const repl = () => {
 			const parsed = parser(tokens);
 			// console.log(parsed);
 			const result = evaluate(parsed.parsedContent);
-			if (result) console.log(result);
+			if (result !== null) console.log(result);
 		} catch (e) {
 			console.error(e.message);
 		}
