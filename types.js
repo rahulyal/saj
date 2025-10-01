@@ -366,7 +366,7 @@ const isProcedureCall = (sajTypeObject) => {
 	if (!isVariable(func_name)) return false;
 	if (!isArray(args)) return false;
 	// if (return_value !== null) return false;
-	if (args.every(!isExpression)) return false
+	if (!args.every(isExpression)) return false
 	return true;
 }
 
