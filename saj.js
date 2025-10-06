@@ -101,6 +101,9 @@ const evaluate = (expression, KvEnv) => {
   }
 };
 
+/**
+ * An interpretor REPL
+ */
 const repl = () => {
   while (true) {
     const input = prompt("> ");

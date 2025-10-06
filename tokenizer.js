@@ -3,45 +3,45 @@
 //////////////////////////////////////////////////////////////////
 
 /**
-Tokenizer: turns strings into meaningful tokens that can be parsed
-input: string
-output: Token[] -> Token : string  
+ * Tokenizer: turns strings into meaningful tokens that can be parsed
+ * @param {string} input
+ * @returns {string[]} tokens
 
 Token cannot contain spaces until it is a string literal " ";
 every left paran should be closed with a right paran until in a string literal
 
-(+ 7 8)
-instead of add token first and decide later approach, we are moving towards a decide first
+- (+ 7 8)
+- instead of add token first and decide later approach, we are moving towards a decide first
 - only need to decide at lparen, rparen, and spaces, and collect tokens accordingly
 */
 
 export const tokenizer = (input) => {
-	const inputLength = input.length;
-	const tokens = [];
-	let token = "";
-	for (let i = 0; i < inputLength; i++) {
-		let curr = input[i];
-		// console.log(token, curr, tokens);
-		if (curr === "(" || curr === ")") {
-			if (token) {
-				tokens.push(token);
-				token = "";
-			}
-			tokens.push(curr);
-		} else if (curr === " ") {
-			if (token) {
-				tokens.push(token);
-				token = "";
-			}
-		} else {
-			token += curr;
-		}
-	}
-	if (token) {
-		tokens.push(token);
-	}
-	return tokens;
-}
+  const inputLength = input.length;
+  const tokens = [];
+  let token = "";
+  for (let i = 0; i < inputLength; i++) {
+    let curr = input[i];
+    // console.log(token, curr, tokens);
+    if (curr === "(" || curr === ")") {
+      if (token) {
+        tokens.push(token);
+        token = "";
+      }
+      tokens.push(curr);
+    } else if (curr === " ") {
+      if (token) {
+        tokens.push(token);
+        token = "";
+      }
+    } else {
+      token += curr;
+    }
+  }
+  if (token) {
+    tokens.push(token);
+  }
+  return tokens;
+};
 
 //////////////////////////////////////
 
