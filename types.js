@@ -1,3 +1,4 @@
+//@ts-check
 /**
  * @fileoverview Type definitions and Validations for saj
  * @author RahulYal [rahul@thetawise.ai]
@@ -203,7 +204,7 @@ const isValidSajTypeObjectStructure = (sajTypeObject) =>
 /**
  * Type validator - checks if a sajTypeObject is valid
  * @callback TypeValidator
- * @param {sajTypeObject} sajTypeObject
+ * @param {*} sajTypeObject
  * @returns {boolean}
  */
 
@@ -214,10 +215,17 @@ const isValidSajTypeObjectStructure = (sajTypeObject) =>
  * @returns {TypeValidator}
  */
 const createPrimitiveTypeValidator = (typeString, valueValidatorFn) => {
+  /**
+   * @type {TypeValidator}
+   */
   const validator = (sajTypeObject) => {
-    if (hasExactKeys(sajTypeObject, ["type", "value"]))
-      if (isValidSajTypeObjectStructure(sajTypeObject))
-        return valueValidatorFn(sajTypeObject.value);
+    if (
+      isValidSajTypeObjectStructure(sajTypeObject) &&
+      hasExactKeys(sajTypeObject, ["type", "value"]) &&
+      sajTypeObject.type === typeString
+    )
+      return valueValidatorFn(sajTypeObject.value);
+    return false;
   };
   return validator;
 };
@@ -229,6 +237,11 @@ const isSajBoolean = createPrimitiveTypeValidator(
 const isSajString = createPrimitiveTypeValidator("string", isStringValueValid);
 const isSajNumber = createPrimitiveTypeValidator("number", isNumValueValid);
 
+/**
+ * Checks if the given sajTypeObject is a primitive type.
+ * @param {*} sajTypeObject
+ * @returns {boolean}
+ */
 const isPrimitive = (sajTypeObject) =>
   isSajBoolean(sajTypeObject) ||
   isSajString(sajTypeObject) ||
@@ -239,69 +252,85 @@ const isPrimitive = (sajTypeObject) =>
 
 /**
  *
- * @param {sajTypeObject} sajTypeObject
+ * @param {*} sajTypeObject
  * @returns {boolean}
  */
 const isVariable = (sajTypeObject) => {
-  if (hasExactKeys(sajTypeObject, ["type", "key"])) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, key } = sajTypeObject;
-      return type === "variable" && typeof key === "string";
-    }
+  if (
+    hasExactKeys(sajTypeObject, ["type", "key"]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
+  ) {
+    const { type, key } = sajTypeObject;
+    return type === "variable" && typeof key === "string";
   }
+  return false;
 };
 
 /**
  * Procedure to validate arithmetic operations
- * @param {sajTypeObject} sajTypeObject
+ * @param {*} sajTypeObject
  * @returns {boolean}
  */
 const isArithmeticOperation = (sajTypeObject) => {
   const arithmeticOperations = ["+", "-", "*", "/"];
-  if (hasExactKeys(sajTypeObject, ["type", "operation", "operands"])) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, op, operands } = sajTypeObject;
-      if (type !== "operation") return false;
-      if (arithmeticOperations.includes(op)) {
+  if (
+    hasExactKeys(sajTypeObject, ["type", "operation", "operands"]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
+  ) {
+    const { type, op, operands } = sajTypeObject;
+    if (type !== "operation") return false;
+    if (arithmeticOperations.includes(op)) {
+      return operands.every(
+        /**
+         *
+         * @param {*} operand
+         * @returns {boolean}
+         */
+        (operand) =>
+          isArithmeticOperation(operand) ||
+          isSajNumber(operand) ||
+          isVariable(operand) ||
+          isProcedureCall(operand) ||
+          isConditional(operand),
+      );
+    }
+  }
+  return false;
+};
+
+/**
+ * Procedure to validate comparative operations
+ * @param {*} sajTypeObject
+ * @returns {boolean}
+ */
+const isComparitiveOperation = (sajTypeObject) => {
+  const comparativeOperations = [">", "=", "<"];
+  if (
+    hasExactKeys(sajTypeObject, ["type", "operation", "operands"]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
+  ) {
+    const { type, op, operands } = sajTypeObject;
+    if (type !== "operation") return false;
+    if (comparativeOperations.includes(op)) {
+      // current functionality will only support two operands for comparative operations
+      if (operands.length() === 2)
         return operands.every(
+          /**
+           *
+           * @param {*} operand
+           * @returns {boolean}
+           */
           (operand) =>
+            isComparitiveOperation(operand) ||
             isArithmeticOperation(operand) ||
             isSajNumber(operand) ||
             isVariable(operand) ||
             isProcedureCall(operand) ||
             isConditional(operand),
         );
-      }
     }
   }
-};
-
-/**
- * Procedure to validate comparative operations
- * @param {sajTypeObject} sajTypeObject
- * @returns {boolean}
- */
-const isComparitiveOperation = (sajTypeObject) => {
-  const comparativeOperations = [">", "=", "<"];
-  if (hasExactKeys(sajTypeObject, ["type", "operation", "operands"])) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, op, operands } = sajTypeObject;
-      if (type !== "operation") return false;
-      if (comparativeOperations.includes(op)) {
-        // current functionality will only support two operands for comparative operations
-        if (operands.length() === 2)
-          return operands.every(
-            (operand) =>
-              isComparitiveOperation(operand) ||
-              isArithmeticOperation(operand) ||
-              isSajNumber(operand) ||
-              isVariable(operand) ||
-              isProcedureCall(operand) ||
-              isConditional(operand),
-          );
-      }
-    }
-  }
+  return false;
 };
 
 /**
@@ -310,39 +339,43 @@ const isComparitiveOperation = (sajTypeObject) => {
  * @returns {boolean}
  */
 const isDefinition = (sajTypeObject) => {
-  if (hasExactKeys(sajTypeObject, ["type", "key", "value"])) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, key, value } = sajTypeObject;
-      if (type !== "definition") return false;
-      if (!isVariable(key)) return false;
-      // setup this function ocrrectly to clean this comment
-      return isExpression(value);
-    }
+  if (
+    hasExactKeys(sajTypeObject, ["type", "key", "value"]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
+  ) {
+    const { type, key, value } = sajTypeObject;
+    if (type !== "definition") return false;
+    if (!isVariable(key)) return false;
+    // setup this function ocrrectly to clean this comment
+    return isExpression(value);
   }
+  return false;
 };
 
 /**
  * Procedure to validate a procedure
- * @param {sajTypeObject} sajTypeObject
+ * @param {*} sajTypeObject
  * @returns {boolean}
  */
 const isProcedure = (sajTypeObject) => {
-  if (hasExactKeys(sajTypeObject, ["type", "inputs", "body"])) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, inputs, body } = sajTypeObject;
-      if (type !== "procedure") return false;
-      // inputs check
-      if (!isArray(inputs)) return false;
-      if (!inputs.every(isString)) return false;
-      // body expression check - remove comment after making isExpression
-      return isExpression(body);
-    }
+  if (
+    hasExactKeys(sajTypeObject, ["type", "inputs", "body"]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
+  ) {
+    const { type, inputs, body } = sajTypeObject;
+    if (type !== "procedure") return false;
+    // inputs check
+    if (!isArray(inputs)) return false;
+    if (!inputs.every(isStringValueValid)) return false;
+    // body expression check - remove comment after making isExpression
+    return isExpression(body);
   }
+  return false;
 };
 
 /**
  * Procedure to validate a procedure call
- * @param {sajTypeObject} sajTypeObject
+ * @param {*} sajTypeObject
  * @returns {boolean}
  */
 const isProcedureCall = (sajTypeObject) => {
@@ -352,18 +385,23 @@ const isProcedureCall = (sajTypeObject) => {
       "procedureName",
       "arguments",
       "returnValue",
-    ])
+    ]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
   ) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, func_name, args, return_value } = sajTypeObject;
-      if (type !== "procedure_call") return false;
-      if (!isVariable(func_name)) return false;
-      if (!isArray(args)) return false;
-      return args.every(isExpression);
-    }
+    const { type, procedureName, arguments: args, returnValue } = sajTypeObject;
+    if (type !== "procedureCall") return false;
+    if (!isVariable(procedureName)) return false;
+    if (!isArray(args)) return false;
+    return args.every(isExpression);
   }
+  return false;
 };
 
+/**
+ *
+ * @param {*} sajTypeObject
+ * @returns {boolean}
+ */
 const isConditional = (sajTypeObject) => {
   if (
     hasExactKeys(sajTypeObject, [
@@ -371,23 +409,23 @@ const isConditional = (sajTypeObject) => {
       "condition",
       "trueReturn",
       "falseReturn",
-    ])
+    ]) &&
+    isValidSajTypeObjectStructure(sajTypeObject)
   ) {
-    if (isValidSajTypeObjectStructure(sajTypeObject)) {
-      const { type, condition, trueReturn, falseReturn } = sajTypeObject;
-      if (type !== "conditional") return false;
-      return (
-        isExpression(condition) ||
-        isExpression(trueReturn) ||
-        isExpression(falseReturn)
-      );
-    }
+    const { type, condition, trueReturn, falseReturn } = sajTypeObject;
+    if (type !== "conditional") return false;
+    return (
+      isExpression(condition) ||
+      isExpression(trueReturn) ||
+      isExpression(falseReturn)
+    );
   }
+  return false;
 };
 
 /**
  * Procedure to validate all saj Expression types except definition
- * @param {sajExpression} sajExpression
+ * @param {*} sajExpression
  * @returns {boolean}
  */
 const isExpression = (sajExpression) =>
