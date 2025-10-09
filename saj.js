@@ -104,17 +104,19 @@ const evaluate = (expression, KvEnv) => {
     // but we would worry only about the result of that evaluation
     const { result, _ } = evaluate(expression.condition, KvEnv);
     if (result) {
-      const { result, _ } = evaluate(expression.trueReturn, KvEnv);
-      return result;
+      return evaluate(expression.trueReturn, KvEnv);
     } else {
-      const { result, _ } = evaluate(expression.falseReturn, KvEnv);
-      return result;
+      return evaluate(expression.falseReturn, KvEnv);
     }
   } else if (expression.type === "procedureCall") {
     // can either be a procedure itself, or can be a variable that has a value of a procedure
     let procedureClosure;
     if (expression.procedure.type === "variable") {
+      // console.log(KvEnv);
+      // const procedure = KvEnv[expression.procedure.key];
+      // const { result, _ } = evaluate(procedure, KvEnv);
       procedureClosure = KvEnv[expression.procedure.key];
+      // console.log(procedureClosure);
     } else if (expression.procedure.type === "procedure") {
       const { result, _ } = evaluate(expression.procedure, KvEnv);
       procedureClosure = result;

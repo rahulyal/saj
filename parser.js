@@ -113,13 +113,13 @@ export const parser = (tokens, startIndex = 0) => {
           parsed.key = parsedContent;
           startIndex = nextIndex;
         }
-        console.log(parsed);
+        // console.log(parsed);
         while (tokens[startIndex] !== ")") {
-          console.log(parsed);
+          // console.log(parsed);
           const { parsedContent, nextIndex } = parser(tokens, startIndex);
           parsed.value = parsedContent;
           startIndex = nextIndex;
-          console.log(parsed);
+          // console.log(parsed);
         }
         return {
           parsedContent: parsed,
