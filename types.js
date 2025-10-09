@@ -67,11 +67,17 @@
  */
 
 /**
+ * @typedef {Object} procedureClosure
+ * @property {"procedureClosure"} type
+ * @property {procedure} procedure
+ * @property {Object} scopedEnvironment
+ */
+
+/**
  * @typedef {Object} procedureCall
  * @property {"procedureCall"} type
- * @property {sajVariable} procedureName
+ * @property {sajVariable | procedure} procedure
  * @property {sajExpression[]} arguments
- * @property {null} resultValue - every function call even if there is no return
  */
 
 /**
@@ -272,14 +278,15 @@ const isVariable = (sajTypeObject) => {
  * @returns {boolean}
  */
 const isArithmeticOperation = (sajTypeObject) => {
+  // console.log(sajTypeObject);
   const arithmeticOperations = ["+", "-", "*", "/"];
   if (
     hasExactKeys(sajTypeObject, ["type", "operation", "operands"]) &&
     isValidSajTypeObjectStructure(sajTypeObject)
   ) {
-    const { type, op, operands } = sajTypeObject;
-    if (type !== "operation") return false;
-    if (arithmeticOperations.includes(op)) {
+    const { type, operation, operands } = sajTypeObject;
+    if (type !== "arithmeticOperation") return false;
+    if (arithmeticOperations.includes(operation)) {
       return operands.every(
         /**
          *
@@ -309,25 +316,23 @@ const isComparitiveOperation = (sajTypeObject) => {
     hasExactKeys(sajTypeObject, ["type", "operation", "operands"]) &&
     isValidSajTypeObjectStructure(sajTypeObject)
   ) {
-    const { type, op, operands } = sajTypeObject;
-    if (type !== "operation") return false;
-    if (comparativeOperations.includes(op)) {
-      // current functionality will only support two operands for comparative operations
-      if (operands.length() === 2)
-        return operands.every(
-          /**
-           *
-           * @param {*} operand
-           * @returns {boolean}
-           */
-          (operand) =>
-            isComparitiveOperation(operand) ||
-            isArithmeticOperation(operand) ||
-            isSajNumber(operand) ||
-            isVariable(operand) ||
-            isProcedureCall(operand) ||
-            isConditional(operand),
-        );
+    const { type, operation, operands } = sajTypeObject;
+    if (type !== "comparativeOperation") return false;
+    if (comparativeOperations.includes(operation)) {
+      return operands.every(
+        /**
+         *
+         * @param {*} operand
+         * @returns {boolean}
+         */
+        (operand) =>
+          isComparitiveOperation(operand) ||
+          isArithmeticOperation(operand) ||
+          isSajNumber(operand) ||
+          isVariable(operand) ||
+          isProcedureCall(operand) ||
+          isConditional(operand),
+      );
     }
   }
   return false;
@@ -366,7 +371,7 @@ const isProcedure = (sajTypeObject) => {
     if (type !== "procedure") return false;
     // inputs check
     if (!isArray(inputs)) return false;
-    if (!inputs.every(isStringValueValid)) return false;
+    // if (!inputs.every(isStringValueValid)) return false;
     // body expression check - remove comment after making isExpression
     return isExpression(body);
   }
@@ -380,19 +385,15 @@ const isProcedure = (sajTypeObject) => {
  */
 const isProcedureCall = (sajTypeObject) => {
   if (
-    hasExactKeys(sajTypeObject, [
-      "type",
-      "procedureName",
-      "arguments",
-      "returnValue",
-    ]) &&
+    hasExactKeys(sajTypeObject, ["type", "procedure", "arguments"]) &&
     isValidSajTypeObjectStructure(sajTypeObject)
   ) {
-    const { type, procedureName, arguments: args, returnValue } = sajTypeObject;
+    const { type, procedure, arguments: args } = sajTypeObject;
     if (type !== "procedureCall") return false;
-    if (!isVariable(procedureName)) return false;
     if (!isArray(args)) return false;
-    return args.every(isExpression);
+    if (isVariable(procedure) || isProcedure(procedure)) {
+      return args.every(isExpression);
+    } else return false;
   }
   return false;
 };

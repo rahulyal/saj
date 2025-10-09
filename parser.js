@@ -49,6 +49,7 @@ const parseAtom = (atom) => {
 /**
  * Parser -> reads the tokens (Token[]) and gives the output as parsedData
  * @param {(string[])} tokens
+ * @param {number} startIndex
  * @returns {parsedData} parsedData
  */
 
@@ -69,8 +70,8 @@ export const parser = (tokens, startIndex = 0) => {
       case arithmeticOperations.includes(op):
         // implement how operations must be treated
         parsed = {
-          type: "operation",
-          op: op,
+          type: "arithmeticOperation",
+          operation: op,
           operands: [],
         };
         startIndex += 1;
@@ -86,8 +87,8 @@ export const parser = (tokens, startIndex = 0) => {
       case comparativeOperations.includes(op):
         // we can do the implementation to deal with multiple args for comparison
         parsed = {
-          type: "operation",
-          op: op,
+          type: "comparativeOperation",
+          operation: op,
           operands: [],
         };
         startIndex += 1;
@@ -112,10 +113,13 @@ export const parser = (tokens, startIndex = 0) => {
           parsed.key = parsedContent;
           startIndex = nextIndex;
         }
+        console.log(parsed);
         while (tokens[startIndex] !== ")") {
+          console.log(parsed);
           const { parsedContent, nextIndex } = parser(tokens, startIndex);
           parsed.value = parsedContent;
           startIndex = nextIndex;
+          console.log(parsed);
         }
         return {
           parsedContent: parsed,
@@ -131,6 +135,7 @@ export const parser = (tokens, startIndex = 0) => {
         };
         startIndex += 2;
         while (tokens[startIndex] !== ")") {
+          // console.log(parsed);
           parsed.inputs.push(tokens[startIndex]);
           startIndex += 1;
         }
@@ -152,8 +157,8 @@ export const parser = (tokens, startIndex = 0) => {
         parsed = {
           type: "conditional",
           condition: null,
-          true_return: null,
-          false_return: null,
+          trueReturn: null,
+          falseReturn: null,
         };
         startIndex += 1;
         // console.log(parsed,startIndex, tokens);
@@ -167,18 +172,18 @@ export const parser = (tokens, startIndex = 0) => {
         while (tokens[startIndex] !== ")") {
           // console.log("-----", startIndex, "-----");
           const { parsedContent, nextIndex } = parser(tokens, startIndex);
-          parsed.true_return = parsedContent;
+          parsed.trueReturn = parsedContent;
           startIndex = nextIndex;
-          if (parsed.true_return) {
+          if (parsed.trueReturn) {
             break;
           }
           // console.log("-----",parsedContent, startIndex,"-----");
         }
         while (tokens[startIndex] !== ")") {
           const { parsedContent, nextIndex } = parser(tokens, startIndex);
-          parsed.false_return = parsedContent;
+          parsed.falseReturn = parsedContent;
           startIndex = nextIndex;
-          if (parsed.false_return) {
+          if (parsed.falseReturn) {
             break;
           }
         }
@@ -191,17 +196,19 @@ export const parser = (tokens, startIndex = 0) => {
       default:
         // for now using this case as the variable case
         // console.log(op);
-        const procedureName = parseAtom(op);
-        if (procedureName.type === "variable") {
-          parsed = {
-            type: "procedureCall",
-            procedureName: procedureName,
-            arguments: [],
-            resultValue: null,
-          };
+        parsed = {
+          type: "procedureCall",
+          procedure: null,
+          arguments: [],
+        };
+        if (op === "(") {
+          // It's something like ((lambda ...) ...)
+          // Recursively parse the inner expression
+          // That becomes the procedure to call
+          const { parsedContent, nextIndex } = parser(tokens, startIndex);
+          parsed.procedure = parsedContent;
+          startIndex = nextIndex;
 
-          startIndex += 1;
-          // console.log(parsed, startIndex, tokens[startIndex]);
           while (tokens[startIndex] !== ")") {
             const { parsedContent, nextIndex } = parser(tokens, startIndex);
             parsed.arguments.push(parsedContent);
@@ -211,6 +218,23 @@ export const parser = (tokens, startIndex = 0) => {
             parsedContent: parsed,
             nextIndex: startIndex + 1,
           };
+        } else {
+          // It's a variable name (normal case)
+          parsed.procedure = parseAtom(op);
+          // ... existing code
+          if (parsed.procedure.type === "variable") {
+            startIndex += 1;
+            // console.log(parsed, startIndex, tokens[startIndex]);
+            while (tokens[startIndex] !== ")") {
+              const { parsedContent, nextIndex } = parser(tokens, startIndex);
+              parsed.arguments.push(parsedContent);
+              startIndex = nextIndex;
+            }
+            return {
+              parsedContent: parsed,
+              nextIndex: startIndex + 1,
+            };
+          }
         }
     }
   }
@@ -240,4 +264,5 @@ export const parser = (tokens, startIndex = 0) => {
 // const tokens = ["(", "+", "2", "(", "*", "3", "4", ")","5", ")"];
 // console.log(parser(tokens));
 // const tokens = ["(","square","(","+","2","3",")","5",")"];
+// const tokens = ["(", "(", "lambda", "(", ")", '"hello world"', ")", ")"];
 // console.log(parser(tokens));

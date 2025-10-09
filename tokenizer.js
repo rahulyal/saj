@@ -13,14 +13,26 @@ every left paran should be closed with a right paran until in a string literal
 - (+ 7 8)
 - instead of add token first and decide later approach, we are moving towards a decide first
 - only need to decide at lparen, rparen, and spaces, and collect tokens accordingly
+
+- This is not internally purely functional, the tokens is mutable data that is internal to the function
 */
 
 export const tokenizer = (input) => {
   const inputLength = input.length;
   const tokens = [];
   let token = "";
+  let isString = false;
   for (let i = 0; i < inputLength; i++) {
     let curr = input[i];
+    if (isString) {
+      token += curr;
+      if (curr === '"') {
+        tokens.push(token);
+        token = "";
+        isString = false;
+      }
+      continue;
+    }
     // console.log(token, curr, tokens);
     if (curr === "(" || curr === ")") {
       if (token) {
@@ -33,6 +45,9 @@ export const tokenizer = (input) => {
         tokens.push(token);
         token = "";
       }
+    } else if (curr === '"') {
+      isString = true;
+      token += curr;
     } else {
       token += curr;
     }
@@ -46,8 +61,11 @@ export const tokenizer = (input) => {
 //////////////////////////////////////
 
 // string must be processed like this in scheme interpretor find the reason behind the decision
-// const expression1 = '"test"';
+// const expression1 = '"test test test"';
 // const expression1 = "(+ 2 3)"
 // const testExpression = "(lambda (x) (* x x))"
 // const testExpression = "(define square (lambda (x) (* x x)))"
-// console.log(tokenizer(expression1));
+
+// const testExpression = '(define hello (lambda () "hello world"))';
+// const testExpression = '((lambda () "hello world"))';
+// console.log(tokenizer(testExpression));

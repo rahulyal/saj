@@ -3,9 +3,7 @@ import { parser } from "./parser.js";
 import { isValidProgram } from "./types.js";
 
 // const KVStore = {}; // GLOBAL SCOPE
-
 // we are moving away from global scope of kv store to keep the core purely functional
-// still needs to be updated to deal with operands array instead of left and right
 
 /**
  *
@@ -19,85 +17,131 @@ const evaluate = (expression, KvEnv) => {
     expression.type === "string" ||
     expression.type === "boolean"
   ) {
-    return { result: expression.value, KvEnv };
+    return { result: expression.value, KvEnv: KvEnv };
   } else if (expression.type === "variable") {
     const keyName = expression.key;
-    // console.log("Looking up:", keyName, "found:", KVStore[keyName]);
-    return { result: KvEnv[keyName], KvEnv };
+    return { result: KvEnv[keyName], KvEnv: KvEnv };
   } else if (expression.type === "definition") {
     const keyName = expression.key.key;
-    KvEnv[keyName] = expression.value;
-    // console.log("Stored:", keyName, "=", KVStore[keyName]);
-    return { result: null, KvEnv };
+    const { result, KvEnv: UpdatedEnv } = evaluate(expression.value, KvEnv);
+    UpdatedEnv[keyName] = result;
+    return { result: null, KvEnv: UpdatedEnv };
   } else if (expression.type === "procedure") {
-    return `#<${expression.type}> \n inputs: ${expression.inputs} \n body: ${expression.body}`;
-  } else if (expression.type === "operation") {
-    // console.log(expression);
-    let left = null;
-    let right = null;
-    switch (expression.op) {
+    // when evaluating a procedure, create a procedureClosure
+    const closure = {
+      type: "procedureClosure",
+      procedure: expression,
+      scopedEnvironment: KvEnv,
+    };
+    return { result: closure, KvEnv: KvEnv };
+  }
+  // procedure closure is just a VALUE, not an expression
+  // It is just created at runtime via procedures
+  // else if (expression.type === "procedureClosure") {
+  //   return { result: "#procedure", KvEnv: KvEnv };
+  else if (expression.type === "arithmeticOperation") {
+    let evaluatedOperands = [];
+    let results = [];
+    switch (expression.operation) {
       case "+":
-        return expression.operands
-          .map((operand) => {
-            const { result, KvEnv } = evaluate(operand, KvEnv);
-            return result;
-          })
-          .reduce((acc, curr) => acc + curr, 0);
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc + curr);
+        return { result: results, KvEnv: KvEnv };
       case "-":
-        return expression.operands
-          .map(evaluate)
-          .reduce((acc, curr) => acc - curr);
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc - curr);
+        return { result: results, KvEnv: KvEnv };
       case "*":
-        return expression.operands
-          .map(evaluate)
-          .reduce((acc, curr) => acc * curr, 1);
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc * curr);
+        return { result: results, KvEnv: KvEnv };
       case "/":
-        return expression.operands
-          .map(evaluate)
-          .reduce((acc, curr) => acc / curr);
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc / curr);
+        return { result: results, KvEnv: KvEnv };
+    }
+  } else if (expression.type === "comparativeOperation") {
+    let evaluatedOperands = [];
+    let results = [];
+    switch (expression.operation) {
       case "=":
-        left = evaluate(expression.operands[0]);
-        right = evaluate(expression.operands[1]);
-        return {
-          type: "boolean",
-          value: left === right,
-        };
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc === curr);
+        return { result: results, KvEnv: KvEnv };
       case ">":
-        left = evaluate(expression.operands[0]);
-        right = evaluate(expression.operands[1]);
-        return {
-          type: "boolean",
-          value: left > right,
-        };
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc > curr);
+        return { result: results, KvEnv: KvEnv };
       case "<":
-        left = evaluate(expression.operands[0]);
-        right = evaluate(expression.operands[1]);
-        return {
-          type: "boolean",
-          value: left < right,
-        };
+        evaluatedOperands = expression.operands.map((operand) => {
+          const { result, _ } = evaluate(operand, KvEnv);
+          return result;
+        });
+        results = evaluatedOperands.reduce((acc, curr) => acc < curr);
+        return { result: results, KvEnv: KvEnv };
     }
-  } else if (expression.type === "procedure_call") {
-    const func = KVStore[expression.func_name.key];
-    // make the function for the actual function, and apply args with it, and handle errors
-    const inputs = func.inputs;
-    const funcExpression = func.body;
-    let savedValues = {};
-    inputs.map((e, i) => {
-      savedValues[e] = KVStore[e];
-      KVStore[e] = evaluate(expression.args[i]);
-    });
-    // console.log(KVStore, savedValues);
-    const res = evaluate(funcExpression);
-    inputs.map((e) => (KVStore[e] = savedValues[e]));
-    return res;
   } else if (expression.type === "conditional") {
-    const condition = evaluate(expression.condition);
-    if (condition.value) {
-      return evaluate(expression.true_return);
+    // conditional itself would in no way modify the current KvEnv, but
+    // internally can have procedure calls which might create new thread scopes
+    // but we would worry only about the result of that evaluation
+    const { result, _ } = evaluate(expression.condition, KvEnv);
+    if (result) {
+      const { result, _ } = evaluate(expression.trueReturn, KvEnv);
+      return result;
     } else {
-      return evaluate(expression.false_return);
+      const { result, _ } = evaluate(expression.falseReturn, KvEnv);
+      return result;
     }
+  } else if (expression.type === "procedureCall") {
+    // can either be a procedure itself, or can be a variable that has a value of a procedure
+    let procedureClosure;
+    if (expression.procedure.type === "variable") {
+      procedureClosure = KvEnv[expression.procedure.key];
+    } else if (expression.procedure.type === "procedure") {
+      const { result, _ } = evaluate(expression.procedure, KvEnv);
+      procedureClosure = result;
+    }
+
+    const evaluatedArguments = expression.arguments.map((arg) => {
+      const { result, _ } = evaluate(arg, KvEnv);
+      return result;
+    });
+    const localScopedEnvironment = { ...procedureClosure.scopedEnvironment };
+
+    // bind evaluated arguments with inputs in scoped scopedEnvironment
+    procedureClosure.procedure.inputs.forEach((input, i) => {
+      localScopedEnvironment[input] = evaluatedArguments[i];
+    });
+
+    const { result, _ } = evaluate(
+      procedureClosure.procedure.body,
+      localScopedEnvironment,
+    );
+
+    return { result, KvEnv: KvEnv };
+
+    // do we create a new KvEnv simply here ?
+    // internal procedural scopes can map the args onto inputs for that scope
+    // and kill that scope once the procedure evaluation is done
+    //
   }
 };
 
@@ -105,6 +149,7 @@ const evaluate = (expression, KvEnv) => {
  * An interpretor REPL
  */
 const repl = () => {
+  let KvEnv = {};
   while (true) {
     const input = prompt("> ");
     // exit should soon be only a procedure, and how do you call a procedure
@@ -117,9 +162,19 @@ const repl = () => {
       // console.log(parsed);
       // structural type validation before evaluation
       const validated = isValidProgram(parsed.parsedContent);
+
       if (validated) {
-        const result = evaluate(validated);
-        if (result !== null) console.log(result);
+        const { result, KvEnv: newEnv } = evaluate(parsed.parsedContent, KvEnv);
+        KvEnv = newEnv;
+
+        if (result !== null) {
+          if (result.type === "procedureClosure") {
+            console.log("#<procedure>");
+          } else {
+            console.log(result);
+          }
+        }
+        // console.log(newEnv);
       } else {
         console.error("type validation failed: structural");
       }
