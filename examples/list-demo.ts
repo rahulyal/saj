@@ -10,8 +10,8 @@
  * Run with: deno run -A examples/list-demo.ts
  */
 
-import { runProgram } from "../evaluator.ts";
-import type { SajProgram } from "../schema.ts";
+import { runProgram } from "../core/evaluator.ts";
+import type { SajProgram } from "../core/schema.ts";
 
 console.log("=".repeat(60));
 console.log("SAJ List Operations Demo");

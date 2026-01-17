@@ -6,15 +6,15 @@
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { SajProgram, SajProcedure } from "../schema.ts";
+import { SajProgram, SajProcedure } from "../../core/schema.ts";
 import {
   runProgram,
   createInMemoryHandlers,
   createDenoKvHandlers,
   type EffectHandlers,
   type KvEnv,
-} from "../evaluator.ts";
-import { fromEnv, isError, type LLMProvider } from "./llm.ts";
+} from "../../core/evaluator.ts";
+import { fromEnv, isError, type LLMProvider } from "../../lib/llm.ts";
 import {
   type MacroRegistry,
   type Macro,

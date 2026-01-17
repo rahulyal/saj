@@ -6,8 +6,8 @@
  * Run with: deno run -A examples/eval-demo.ts
  */
 
-import { runProgram, createInMemoryHandlers } from "../evaluator.ts";
-import type { SajProgram } from "../schema.ts";
+import { runProgram, createInMemoryHandlers } from "../core/evaluator.ts";
+import type { SajProgram } from "../core/schema.ts";
 
 // ///////////////////////////////////////////////////////////////////////////
 // Example 1: Simple arithmetic

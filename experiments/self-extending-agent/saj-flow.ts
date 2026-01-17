@@ -5,14 +5,14 @@
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { SajProgram, SajProgramWithMeta } from "../schema.ts";
+import { SajProgram, SajProgramWithMeta } from "../../core/schema.ts";
 import {
   runProgram,
   createInMemoryHandlers,
   createDenoKvHandlers,
   type EffectHandlers,
   type KvEnv,
-} from "../evaluator.ts";
+} from "../../core/evaluator.ts";
 import {
   createLLMClient,
   fromEnv,
@@ -20,7 +20,7 @@ import {
   type LLMProvider,
   type LLMResponse,
   type LLMError,
-} from "./llm.ts";
+} from "../../lib/llm.ts";
 
 export type StepMeta = {
   name: string;
@@ -485,5 +485,5 @@ export function createIterativeFlow(
   });
 }
 
-export { createLLMClient, fromEnv, isError } from "./llm.ts";
-export type { LLMProvider, LLMResponse, LLMError } from "./llm.ts";
+export { createLLMClient, fromEnv, isError } from "../../lib/llm.ts";
+export type { LLMProvider, LLMResponse, LLMError } from "../../lib/llm.ts";

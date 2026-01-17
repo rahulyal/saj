@@ -5,8 +5,8 @@
  * create a library of math macros that improves performance over time.
  */
 
-import { SajAgent, createAgent, type AgentResult } from "../lib/agent.ts";
-import { type Macro, type MacroRegistry, InMemoryMacroRegistry } from "../lib/macros.ts";
+import { SajAgent, createAgent, type AgentResult } from "../self-extending-agent/agent.ts";
+import { type Macro } from "../self-extending-agent/macros.ts";
 
 export type GSM8KProblem = {
   question: string;

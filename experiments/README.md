@@ -1,42 +1,40 @@
 # SAJ Experiments
 
-Research experiments exploring self-extending agents and LLM-powered program synthesis.
+Explorations using SAJ as a self-extending language.
 
-## GSM8K Training (`gsm8k-training.ts`)
+## Core Idea
 
-Tests the hypothesis that running a self-extending agent on math problems will cause it to:
-1. Create a library of reusable math macros (percentage, average, area, etc.)
-2. Improve accuracy over time as the library grows
-3. Demonstrate macro reuse patterns
-
-### Running
-
-```bash
-deno run -A experiments/gsm8k-training.ts
+```
+Task → LLM writes SAJ → Run → Verify → Store if good → Library grows
 ```
 
-### Results (Observed)
-- 100% accuracy on 10 sample problems with gpt-5-nano
-- 92.5% accuracy on 80 problems
-- LLM naturally uses `let`-bindings for step-by-step reasoning
+SAJ is a minimal Turing-complete JSON language. AI builds standard libraries on top through verified execution.
 
-### Key Insight
-The LLM doesn't just output final answers - it generates structured programs with intermediate variable bindings, enabling transparent reasoning and debugging.
+## Experiments
 
-## Research Plan (`RESEARCH_PLAN.md`)
+### math-stdlib/
 
-Detailed research plan for a potential paper on self-extending agents via learned procedure libraries.
+Build math standard library via GSM8K problems.
 
-### Key Questions
-1. Does the macro library improve accuracy over time?
-2. What macros emerge (generalizable vs overfitted)?
-3. Is there a curriculum effect?
-4. How does this compare to baselines?
+- **Verification**: `result === expected_answer`
+- **Output**: Math macros (percentage, average, area, etc.)
+- **Status**: 92.5% accuracy on 80 problems observed
 
-## Future Experiments
+### self-extending-agent/
 
-Ideas for future research:
-- Embedding-based macro search
-- Macro composition and chaining
-- Transfer learning across domains
-- Ablation studies on macro creation threshold
+Build programming standard library via coding tasks.
+
+- **Verification**: Tests pass
+- **Output**: Programming macros (utilities, transforms, etc.)
+- **Status**: Framework ready
+
+## Running
+
+```bash
+deno run -A experiments/math-stdlib/runner.ts
+deno run -A experiments/self-extending-agent/agent.ts
+```
+
+## What Emerges
+
+Each experiment produces macros - JSON programs that solved real problems and can be reused.

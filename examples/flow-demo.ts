@@ -16,7 +16,7 @@ import {
   createGenerateAndRunFlow,
   createIterativeFlow,
   type LLMProvider,
-} from "../lib/saj-flow.ts";
+} from "../experiments/self-extending-agent/saj-flow.ts";
 
 // Detect which provider to use based on available API keys
 const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");

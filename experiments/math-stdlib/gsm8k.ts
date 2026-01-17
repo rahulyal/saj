@@ -15,9 +15,9 @@
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { fromEnv, isError } from "../lib/llm.ts";
-import { SajProgram, SajProgramWithMeta } from "../schema.ts";
-import { runProgram, createInMemoryHandlers } from "../evaluator.ts";
+import { fromEnv, isError } from "../../lib/llm.ts";
+import { SajProgram, SajProgramWithMeta } from "../../core/schema.ts";
+import { runProgram, createInMemoryHandlers } from "../../core/evaluator.ts";
 
 // ///////////////////////////////////////////////////////////////////////////
 // Types

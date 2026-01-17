@@ -16,7 +16,7 @@ import {
   fromEnv,
   isError,
   zodToJsonSchema,
-} from "../lib/llm.ts";
+} from "../experiments/self-extending-agent/llm.ts";
 
 // ///////////////////////////////////////////////////////////////////////////
 // Example 1: Simple schema with auto-detected provider

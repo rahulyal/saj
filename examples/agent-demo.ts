@@ -11,7 +11,7 @@
  *   ANTHROPIC_API_KEY=... deno run -A examples/agent-demo.ts
  */
 
-import { createAgent } from "../lib/agent.ts";
+import { createAgent } from "../experiments/self-extending-agent/agent.ts";
 
 // Check for API key
 const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");

@@ -6,7 +6,7 @@
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { SajProcedure } from "../schema.ts";
+import { SajProcedure } from "../../core/schema.ts";
 
 export const MacroSchema = z.object({
   name: z.string(),
