@@ -277,8 +277,8 @@ export function zodToJsonSchema(
 // ///////////////////////////////////////////////////////////////////////////
 
 const OPENAI_MODELS = {
-  default: "gpt-4o",
-  fast: "gpt-4o-mini",
+  default: "gpt-o4-mini",
+  fast: "gpt-5-mini",
 };
 
 async function callOpenAI<T extends z.ZodType>(
