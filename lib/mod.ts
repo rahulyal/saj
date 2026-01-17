@@ -1,11 +1,4 @@
-/**
- * SAJ Library Module
- *
- * Entry point for all SAJ library exports.
- * Provides LLM integration, flow orchestration, and utilities.
- */
-
-// LLM Adapter - lightweight structured output support for OpenAI and Anthropic
+// LLM Adapter
 export {
   createLLMClient,
   openai,
@@ -20,7 +13,7 @@ export {
   type StructuredOutputOptions,
 } from "./llm.ts";
 
-// SAJ Flow - LLM-powered SAJ program generation and execution
+// SAJ Flow
 export {
   createGenerateSajStep,
   createExecuteSajStep,
@@ -41,7 +34,7 @@ export {
   type IterativeFlowOutput,
 } from "./saj-flow.ts";
 
-// Macro System - Reusable procedures stored in KV
+// Macro System
 export {
   MacroSchema,
   type Macro,
@@ -53,7 +46,7 @@ export {
   formatMacrosForPrompt,
 } from "./macros.ts";
 
-// Self-Extending Agent
+// Agent
 export {
   SajAgent,
   createAgent,

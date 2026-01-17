@@ -1,12 +1,4 @@
-import type {
-  SajExpression,
-  SajProgram,
-  SajEffect,
-} from "./schema.ts";
-
-// ///////////////////////////////////////////////////////////////////////////
-// Types
-// ///////////////////////////////////////////////////////////////////////////
+import type { SajExpression, SajProgram, SajEffect } from "./schema.ts";
 
 export type KvEnv = Record<string, unknown>;
 
@@ -26,10 +18,6 @@ export type ProcedureClosure = {
   scopedEnvironment: KvEnv;
 };
 
-// ///////////////////////////////////////////////////////////////////////////
-// Effect Handlers - Dependency Injection for side effects
-// ///////////////////////////////////////////////////////////////////////////
-
 export type EffectHandlers = {
   kv: {
     get: (key: string) => Promise<unknown>;
@@ -44,7 +32,6 @@ export type EffectHandlers = {
   log: (message: unknown) => void;
 };
 
-// Default in-memory effect handlers (for testing/local dev)
 export const createInMemoryHandlers = (): EffectHandlers => {
   const store = new Map<string, unknown>();
 
@@ -75,7 +62,6 @@ export const createInMemoryHandlers = (): EffectHandlers => {
   };
 };
 
-// Deno KV effect handlers
 export const createDenoKvHandlers = (kv: Deno.Kv): EffectHandlers => {
   return {
     kv: {
@@ -113,10 +99,6 @@ export const createDenoKvHandlers = (kv: Deno.Kv): EffectHandlers => {
   };
 };
 
-// ///////////////////////////////////////////////////////////////////////////
-// Async Evaluator with Effect Support
-// ///////////////////////////////////////////////////////////////////////////
-
 export async function evaluate(
   expression: SajExpression | SajProgram,
   env: KvEnv,
@@ -125,12 +107,10 @@ export async function evaluate(
 ): Promise<EvalResult> {
   const expr = expression as Record<string, unknown>;
 
-  // Primitives
   if (expr.type === "number" || expr.type === "string" || expr.type === "boolean") {
     return { result: expr.value, env, logs };
   }
 
-  // Variable lookup
   if (expr.type === "variable") {
     const key = expr.key as string;
     if (!(key in env)) {
@@ -139,7 +119,6 @@ export async function evaluate(
     return { result: env[key], env, logs };
   }
 
-  // Definition
   if (expr.type === "definition") {
     const keyVar = expr.key as { key: string };
     const { result, logs: newLogs } = await evaluate(
@@ -152,7 +131,6 @@ export async function evaluate(
     return { result: null, env: newEnv, logs: newLogs };
   }
 
-  // Procedure - create closure
   if (expr.type === "procedure") {
     const closure: ProcedureClosure = {
       type: "procedureClosure",
@@ -162,7 +140,6 @@ export async function evaluate(
     return { result: closure, env, logs };
   }
 
-  // Arithmetic operations
   if (expr.type === "arithmeticOperation") {
     const operands = expr.operands as SajExpression[];
     const evaluatedOperands: number[] = [];
@@ -194,7 +171,6 @@ export async function evaluate(
     return { result, env, logs };
   }
 
-  // Comparative operations
   if (expr.type === "comparativeOperation") {
     const operands = expr.operands as SajExpression[];
     const evaluatedOperands: number[] = [];
@@ -205,7 +181,6 @@ export async function evaluate(
       evaluatedOperands.push(result as number);
     }
 
-    // For comparison, we check pairwise
     let result: boolean;
     const [first, second] = evaluatedOperands;
 
@@ -235,7 +210,6 @@ export async function evaluate(
     return { result, env, logs };
   }
 
-  // Conditional
   if (expr.type === "conditional") {
     const { result: condResult, logs: newLogs } = await evaluate(
       expr.condition as SajExpression,
@@ -252,7 +226,6 @@ export async function evaluate(
     }
   }
 
-  // Procedure call
   if (expr.type === "procedureCall") {
     let closure: ProcedureClosure;
 
@@ -274,7 +247,6 @@ export async function evaluate(
       closure = result as ProcedureClosure;
     }
 
-    // Evaluate arguments
     const args = expr.arguments as SajExpression[];
     const evaluatedArgs: unknown[] = [];
     for (const arg of args) {
@@ -283,13 +255,11 @@ export async function evaluate(
       evaluatedArgs.push(result);
     }
 
-    // Create local scope with bound arguments
     const localEnv = { ...closure.scopedEnvironment };
     closure.procedure.inputs.forEach((input, i) => {
       localEnv[input] = evaluatedArgs[i];
     });
 
-    // Evaluate body in local scope
     const { result, logs: bodyLogs } = await evaluate(
       closure.procedure.body,
       localEnv,
@@ -300,12 +270,10 @@ export async function evaluate(
     return { result, env, logs: bodyLogs };
   }
 
-  // Effects
   if (expr.type === "effect") {
     return evaluateEffect(expr as unknown as SajEffect, env, handlers, logs);
   }
 
-  // List literal
   if (expr.type === "list") {
     const elements = expr.elements as SajExpression[];
     const evaluatedElements: unknown[] = [];
@@ -319,17 +287,12 @@ export async function evaluate(
     return { result: evaluatedElements, env, logs };
   }
 
-  // List operations
   if (expr.type === "listOperation") {
     return evaluateListOperation(expr as Record<string, unknown>, env, handlers, logs);
   }
 
   throw new Error(`Unknown expression type: ${expr.type}`);
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Effect Evaluation
-// ///////////////////////////////////////////////////////////////////////////
 
 async function evaluateEffect(
   effect: SajEffect,
@@ -420,18 +383,13 @@ async function evaluateEffect(
     }
 
     case "let": {
-      // Evaluate the value expression
       const { result: value, logs: newLogs } = await evaluate(
         effect.value as SajExpression,
         env,
         handlers,
         logs
       );
-
-      // Bind the result to the variable name in a new scope
       const newEnv = { ...env, [effect.binding]: value };
-
-      // Evaluate the body with the binding
       return evaluate(effect.body as SajExpression, newEnv, handlers, newLogs);
     }
 
@@ -439,10 +397,6 @@ async function evaluateEffect(
       throw new Error(`Unknown effect action: ${(effect as { action: string }).action}`);
   }
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// List Operation Evaluation
-// ///////////////////////////////////////////////////////////////////////////
 
 async function evaluateListOperation(
   op: Record<string, unknown>,
@@ -452,7 +406,6 @@ async function evaluateListOperation(
 ): Promise<EvalResult> {
   const operation = op.operation as string;
 
-  // Helper to evaluate and expect a list
   async function evalList(expr: unknown): Promise<{ list: unknown[]; logs: string[] }> {
     const { result, logs: newLogs } = await evaluate(
       expr as SajExpression,
@@ -466,7 +419,6 @@ async function evaluateListOperation(
     return { list: result, logs: newLogs };
   }
 
-  // Helper to apply a procedure to arguments
   async function applyProcedure(
     proc: unknown,
     args: unknown[],
@@ -491,13 +443,11 @@ async function evaluateListOperation(
       throw new Error("Expected procedure or variable reference");
     }
 
-    // Create local scope with bound arguments
     const localEnv = { ...closure.scopedEnvironment };
     closure.procedure.inputs.forEach((input, i) => {
       localEnv[input] = args[i];
     });
 
-    // Evaluate body in local scope
     const { result, logs: bodyLogs } = await evaluate(
       closure.procedure.body,
       localEnv,
@@ -715,10 +665,6 @@ async function evaluateListOperation(
   }
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Convenience function to run a program
-// ///////////////////////////////////////////////////////////////////////////
-
 export async function runProgram(
   program: SajProgram,
   options: {
@@ -728,6 +674,5 @@ export async function runProgram(
 ): Promise<EvalResult> {
   const env = options.env ?? {};
   const handlers = options.handlers ?? createInMemoryHandlers();
-
   return evaluate(program, env, handlers, []);
 }

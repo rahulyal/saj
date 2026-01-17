@@ -1,9 +1,6 @@
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 
-// ///////////////////////////////////////////////////////////////////////////
-// Primitive Types
-// ///////////////////////////////////////////////////////////////////////////
-
+// Primitives
 export const SajNumber = z.object({
   type: z.literal("number"),
   value: z.number().finite(),
@@ -25,20 +22,12 @@ export const SajPrimitive = z.discriminatedUnion("type", [
   SajBoolean,
 ]);
 
-// ///////////////////////////////////////////////////////////////////////////
-// Variable Reference
-// ///////////////////////////////////////////////////////////////////////////
-
 export const SajVariable = z.object({
   type: z.literal("variable"),
   key: z.string(),
 });
 
-// ///////////////////////////////////////////////////////////////////////////
 // Forward declarations for recursive types
-// We use z.lazy() to handle mutual recursion
-// ///////////////////////////////////////////////////////////////////////////
-
 export type SajExpression = z.infer<typeof SajExpression>;
 export type SajArithmeticOperation = z.infer<typeof SajArithmeticOperation>;
 export type SajComparativeOperation = z.infer<typeof SajComparativeOperation>;
@@ -50,11 +39,7 @@ export type SajEffect = z.infer<typeof SajEffect>;
 export type SajList = z.infer<typeof SajList>;
 export type SajListOperation = z.infer<typeof SajListOperation>;
 
-// ///////////////////////////////////////////////////////////////////////////
-// Effects - The new system for side effects
-// ///////////////////////////////////////////////////////////////////////////
-
-// KV Operations
+// Effects
 const KvGet = z.object({
   type: z.literal("effect"),
   action: z.literal("kv:get"),
@@ -80,7 +65,6 @@ const KvList = z.object({
   prefix: z.string().optional(),
 });
 
-// HTTP Operations
 const FetchEffect = z.object({
   type: z.literal("effect"),
   action: z.literal("fetch"),
@@ -90,21 +74,18 @@ const FetchEffect = z.object({
   body: z.lazy(() => SajExpression).optional(),
 });
 
-// Logging/Output
 const LogEffect = z.object({
   type: z.literal("effect"),
   action: z.literal("log"),
   message: z.lazy(() => SajExpression),
 });
 
-// Sequence - run multiple effects in order
 const SequenceEffect = z.object({
   type: z.literal("effect"),
   action: z.literal("sequence"),
   steps: z.array(z.lazy(() => SajExpression)),
 });
 
-// Let binding - bind effect result to a variable for subsequent expressions
 const LetEffect = z.object({
   type: z.literal("effect"),
   action: z.literal("let"),
@@ -113,7 +94,6 @@ const LetEffect = z.object({
   body: z.lazy(() => SajExpression),
 });
 
-// All effect types
 export const SajEffect = z.discriminatedUnion("action", [
   KvGet,
   KvSet,
@@ -125,11 +105,7 @@ export const SajEffect = z.discriminatedUnion("action", [
   LetEffect,
 ]);
 
-// ///////////////////////////////////////////////////////////////////////////
-// Lists - First-class list support for math operations
-// ///////////////////////////////////////////////////////////////////////////
-
-// List literal - a list of expressions
+// Lists
 export const SajList: z.ZodType<{
   type: "list";
   elements: SajExpression[];
@@ -138,7 +114,6 @@ export const SajList: z.ZodType<{
   elements: z.lazy(() => z.array(SajExpression)),
 });
 
-// List operations
 const ListSum = z.object({
   type: z.literal("listOperation"),
   operation: z.literal("sum"),
@@ -230,7 +205,6 @@ const ListAverage = z.object({
   list: z.lazy(() => SajExpression),
 });
 
-// All list operations
 export const SajListOperation = z.discriminatedUnion("operation", [
   ListSum,
   ListLength,
@@ -248,11 +222,7 @@ export const SajListOperation = z.discriminatedUnion("operation", [
   ListAverage,
 ]);
 
-// ///////////////////////////////////////////////////////////////////////////
 // Operations
-// ///////////////////////////////////////////////////////////////////////////
-
-// Arithmetic operand - can be number, variable, nested arithmetic, procedure call, conditional, or effect
 const ArithmeticOperand: z.ZodType<
   | z.infer<typeof SajNumber>
   | z.infer<typeof SajVariable>
@@ -288,7 +258,6 @@ export const SajArithmeticOperation: z.ZodType<{
   operands: z.array(ArithmeticOperand),
 });
 
-// Comparative operand - similar to arithmetic but also allows comparative operations
 const ComparativeOperand: z.ZodType<
   | z.infer<typeof SajNumber>
   | z.infer<typeof SajVariable>
@@ -327,10 +296,7 @@ export const SajComparativeOperation: z.ZodType<{
   operands: z.array(ComparativeOperand),
 });
 
-// ///////////////////////////////////////////////////////////////////////////
 // Procedures
-// ///////////////////////////////////////////////////////////////////////////
-
 export const SajProcedure: z.ZodType<{
   type: "procedure";
   inputs: string[];
@@ -351,10 +317,7 @@ export const SajProcedureCall: z.ZodType<{
   arguments: z.lazy(() => z.array(SajExpression)),
 });
 
-// ///////////////////////////////////////////////////////////////////////////
 // Conditional
-// ///////////////////////////////////////////////////////////////////////////
-
 export const SajConditional: z.ZodType<{
   type: "conditional";
   condition: SajExpression;
@@ -367,10 +330,7 @@ export const SajConditional: z.ZodType<{
   falseReturn: z.lazy(() => SajExpression),
 });
 
-// ///////////////////////////////////////////////////////////////////////////
-// Definition (top-level only)
-// ///////////////////////////////////////////////////////////////////////////
-
+// Definition
 export const SajDefinition: z.ZodType<{
   type: "definition";
   key: z.infer<typeof SajVariable>;
@@ -381,10 +341,7 @@ export const SajDefinition: z.ZodType<{
   value: z.lazy(() => SajExpression),
 });
 
-// ///////////////////////////////////////////////////////////////////////////
 // Complete Expression Type
-// ///////////////////////////////////////////////////////////////////////////
-
 export const SajExpression: z.ZodType<
   | z.infer<typeof SajNumber>
   | z.infer<typeof SajString>
@@ -415,25 +372,14 @@ export const SajExpression: z.ZodType<
   ])
 );
 
-// ///////////////////////////////////////////////////////////////////////////
-// Valid Program (expression or definition)
-// ///////////////////////////////////////////////////////////////////////////
-
 export const SajProgram = z.union([SajExpression, SajDefinition]);
-
-// ///////////////////////////////////////////////////////////////////////////
-// Program with metadata (for LLM generation)
-// ///////////////////////////////////////////////////////////////////////////
 
 export const SajProgramWithMeta = z.object({
   description: z.string().describe("What this program does"),
   program: SajProgram,
 });
 
-// ///////////////////////////////////////////////////////////////////////////
 // Exported types
-// ///////////////////////////////////////////////////////////////////////////
-
 export type SajNumber = z.infer<typeof SajNumber>;
 export type SajString = z.infer<typeof SajString>;
 export type SajBoolean = z.infer<typeof SajBoolean>;

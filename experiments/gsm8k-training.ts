@@ -1,29 +1,18 @@
 /**
  * GSM8K Training Loop for Self-Extending Agent
  *
- * Hypothesis: Running against math problems will cause the agent to
- * create a library of math macros, improving performance over time.
- *
- * This is a research prototype to test the idea.
+ * Tests whether running against math problems causes the agent to
+ * create a library of math macros that improves performance over time.
  */
 
-import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { SajAgent, createAgent, type AgentResult } from "../lib/agent.ts";
 import { type Macro, type MacroRegistry, InMemoryMacroRegistry } from "../lib/macros.ts";
 
-// ///////////////////////////////////////////////////////////////////////////
-// GSM8K Data Types
-// ///////////////////////////////////////////////////////////////////////////
-
 export type GSM8KProblem = {
   question: string;
-  answer: number; // Ground truth (extracted from "#### N" format)
-  reasoning?: string; // Chain of thought (if available)
+  answer: number;
+  reasoning?: string;
 };
-
-// ///////////////////////////////////////////////////////////////////////////
-// Training Metrics
-// ///////////////////////////////////////////////////////////////////////////
 
 export type TrainingMetrics = {
   totalProblems: number;
@@ -31,13 +20,9 @@ export type TrainingMetrics = {
   accuracy: number;
   macrosCreated: number;
   macrosUsed: number;
-  macroReuseRate: number; // How often existing macros were used
-  accuracyOverTime: number[]; // Rolling accuracy (window of 100)
+  macroReuseRate: number;
+  accuracyOverTime: number[];
 };
-
-// ///////////////////////////////////////////////////////////////////////////
-// Evaluation: Check if SAJ result matches expected answer
-// ///////////////////////////////////////////////////////////////////////////
 
 function extractNumber(result: unknown): number | null {
   if (typeof result === "number") return result;
@@ -53,10 +38,6 @@ function isCorrect(result: unknown, expected: number, tolerance = 0.01): boolean
   if (actual === null) return false;
   return Math.abs(actual - expected) <= tolerance;
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Training Loop
-// ///////////////////////////////////////////////////////////////////////////
 
 export type TrainingConfig = {
   agent: SajAgent;
@@ -89,7 +70,7 @@ export async function trainOnGSM8K(config: TrainingConfig): Promise<TrainingMetr
     accuracyOverTime: [],
   };
 
-  const recentCorrect: boolean[] = []; // Rolling window for accuracy
+  const recentCorrect: boolean[] = [];
   const macroUsageCounts: Record<string, number> = {};
 
   for (let i = 0; i < problems.length; i++) {
@@ -101,32 +82,27 @@ export async function trainOnGSM8K(config: TrainingConfig): Promise<TrainingMetr
     }
 
     try {
-      // Run the agent on this problem
       const result = await agent.execute({
         goal: `Solve this math problem and return ONLY the final numerical answer:\n\n${problem.question}`,
         context: "Return just the number, no explanation needed.",
       });
 
-      // Check if correct
       const correct = isCorrect(result.result, problem.answer);
 
       if (correct) {
         metrics.correctAnswers++;
       }
 
-      // Track macro usage
       for (const macroName of result.macrosUsed) {
         macroUsageCounts[macroName] = (macroUsageCounts[macroName] || 0) + 1;
         metrics.macrosUsed++;
       }
 
-      // Track macro creation
       for (const macroName of result.macrosCreated) {
         metrics.macrosCreated++;
         onMacroCreated?.(macroName, problem);
       }
 
-      // Update rolling accuracy
       recentCorrect.push(correct);
       if (recentCorrect.length > 100) {
         recentCorrect.shift();
@@ -134,7 +110,6 @@ export async function trainOnGSM8K(config: TrainingConfig): Promise<TrainingMetr
       const rollingAccuracy = recentCorrect.filter(Boolean).length / recentCorrect.length;
       metrics.accuracyOverTime.push(rollingAccuracy);
 
-      // Update overall metrics
       metrics.accuracy = metrics.correctAnswers / metrics.totalProblems;
       metrics.macroReuseRate = metrics.macrosUsed > 0
         ? Object.values(macroUsageCounts).filter(c => c > 1).length / Object.keys(macroUsageCounts).length
@@ -148,7 +123,6 @@ export async function trainOnGSM8K(config: TrainingConfig): Promise<TrainingMetr
 
       onProblem?.(i, problem, result, correct);
 
-      // Checkpoint
       if ((i + 1) % checkpointEvery === 0) {
         const macros = await agent.listMacros();
         onCheckpoint?.(metrics, macros);
@@ -165,10 +139,6 @@ export async function trainOnGSM8K(config: TrainingConfig): Promise<TrainingMetr
   return metrics;
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Analysis: What macros were most useful?
-// ///////////////////////////////////////////////////////////////////////////
-
 export async function analyzeMacroQuality(
   agent: SajAgent,
   testProblems: GSM8KProblem[]
@@ -184,82 +154,28 @@ export async function analyzeMacroQuality(
     });
   }
 
-  // Sort by usage * accuracy (most valuable macros)
   results.sort((a, b) => (b.usageCount * b.accuracy) - (a.usageCount * a.accuracy));
 
   return results;
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Sample GSM8K-style problems for testing
-// ///////////////////////////////////////////////////////////////////////////
-
 export const SAMPLE_PROBLEMS: GSM8KProblem[] = [
-  {
-    question: "Janet has 3 apples. She buys 5 more apples. How many apples does she have now?",
-    answer: 8,
-  },
-  {
-    question: "A store has 24 oranges. If they sell 7 oranges, how many are left?",
-    answer: 17,
-  },
-  {
-    question: "Tom has 15 marbles. He gives 4 to his friend and then finds 6 more. How many marbles does Tom have?",
-    answer: 17,
-  },
-  {
-    question: "A rectangle has a length of 8 and a width of 5. What is its area?",
-    answer: 40,
-  },
-  {
-    question: "If you have $20 and spend $7.50, how much money do you have left?",
-    answer: 12.5,
-  },
-  {
-    question: "A baker makes 36 cookies and puts them equally into 4 boxes. How many cookies are in each box?",
-    answer: 9,
-  },
-  {
-    question: "Sarah scored 85, 90, and 95 on three tests. What is her average score?",
-    answer: 90,
-  },
-  {
-    question: "A shirt costs $25. If it's on sale for 20% off, how much do you save?",
-    answer: 5,
-  },
-  {
-    question: "John runs 3 miles every day for a week. How many miles does he run in total?",
-    answer: 21,
-  },
-  {
-    question: "A train travels at 60 miles per hour. How far does it travel in 2.5 hours?",
-    answer: 150,
-  },
-  {
-    question: "If 5 workers can build a wall in 10 days, how many days would it take 1 worker?",
-    answer: 50,
-  },
-  {
-    question: "A store increases prices by 15%. If an item was $40, what is the new price?",
-    answer: 46,
-  },
-  {
-    question: "The sum of two numbers is 100. One number is 3 times the other. What is the larger number?",
-    answer: 75,
-  },
-  {
-    question: "A tank is 1/4 full. After adding 30 liters, it becomes 3/4 full. What is the tank's capacity?",
-    answer: 60,
-  },
-  {
-    question: "If the perimeter of a square is 48, what is its area?",
-    answer: 144,
-  },
+  { question: "Janet has 3 apples. She buys 5 more apples. How many apples does she have now?", answer: 8 },
+  { question: "A store has 24 oranges. If they sell 7 oranges, how many are left?", answer: 17 },
+  { question: "Tom has 15 marbles. He gives 4 to his friend and then finds 6 more. How many marbles does Tom have?", answer: 17 },
+  { question: "A rectangle has a length of 8 and a width of 5. What is its area?", answer: 40 },
+  { question: "If you have $20 and spend $7.50, how much money do you have left?", answer: 12.5 },
+  { question: "A baker makes 36 cookies and puts them equally into 4 boxes. How many cookies are in each box?", answer: 9 },
+  { question: "Sarah scored 85, 90, and 95 on three tests. What is her average score?", answer: 90 },
+  { question: "A shirt costs $25. If it's on sale for 20% off, how much do you save?", answer: 5 },
+  { question: "John runs 3 miles every day for a week. How many miles does he run in total?", answer: 21 },
+  { question: "A train travels at 60 miles per hour. How far does it travel in 2.5 hours?", answer: 150 },
+  { question: "If 5 workers can build a wall in 10 days, how many days would it take 1 worker?", answer: 50 },
+  { question: "A store increases prices by 15%. If an item was $40, what is the new price?", answer: 46 },
+  { question: "The sum of two numbers is 100. One number is 3 times the other. What is the larger number?", answer: 75 },
+  { question: "A tank is 1/4 full. After adding 30 liters, it becomes 3/4 full. What is the tank's capacity?", answer: 60 },
+  { question: "If the perimeter of a square is 48, what is its area?", answer: 144 },
 ];
-
-// ///////////////////////////////////////////////////////////////////////////
-// Main experiment runner
-// ///////////////////////////////////////////////////////////////////////////
 
 export async function runExperiment(config: {
   problems?: GSM8KProblem[];
@@ -286,8 +202,8 @@ export async function runExperiment(config: {
     agent,
     problems,
     verbose: config.verbose ?? true,
-    onMacroCreated: (name, problem) => {
-      console.log(`  📦 Created macro: ${name}`);
+    onMacroCreated: (name) => {
+      console.log(`  Created macro: ${name}`);
     },
     onCheckpoint: (m, macros) => {
       console.log("\n--- Checkpoint ---");
@@ -308,7 +224,7 @@ export async function runExperiment(config: {
   console.log(`Total Macro Library: ${macros.length}`);
   console.log(`Macro Reuse Rate: ${(metrics.macroReuseRate * 100).toFixed(1)}%`);
 
-  console.log("\nTop Macros by Value (usage × accuracy):");
+  console.log("\nTop Macros by Value (usage x accuracy):");
   for (const item of analysis.slice(0, 10)) {
     console.log(`  ${item.macro.name}: ${item.usageCount} uses, ${(item.accuracy * 100).toFixed(0)}% success`);
   }
@@ -316,7 +232,6 @@ export async function runExperiment(config: {
   return { metrics, macros, analysis };
 }
 
-// Run if executed directly
 if (import.meta.main) {
   await runExperiment({ verbose: true });
 }

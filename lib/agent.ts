@@ -1,21 +1,12 @@
 /**
  * Self-Extending SAJ Agent
  *
- * An agent that can:
- * 1. Search for relevant macros when given a task
- * 2. Generate SAJ programs using existing macros
- * 3. Create NEW macros when capabilities are missing
- * 4. Store new macros for future use
- * 5. Learn from success/failure (update macro success rates)
- *
- * This is the core research contribution:
- * - Tool calling becomes native (tools = procedures in KV)
- * - Agent self-extends by creating new tools
- * - Tools are inspectable, composable, and versioned
+ * An agent that searches for relevant macros, generates SAJ programs,
+ * and creates new macros when capabilities are missing.
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { SajProgram, SajProcedure, SajProgramWithMeta } from "../schema.ts";
+import { SajProgram, SajProcedure } from "../schema.ts";
 import {
   runProgram,
   createInMemoryHandlers,
@@ -31,12 +22,7 @@ import {
   DenoKvMacroRegistry,
   initializeRegistry,
   formatMacrosForPrompt,
-  MacroSchema,
 } from "./macros.ts";
-
-// ///////////////////////////////////////////////////////////////////////////
-// Agent Types
-// ///////////////////////////////////////////////////////////////////////////
 
 export type AgentConfig = {
   registry?: MacroRegistry;
@@ -65,10 +51,6 @@ export type AgentResult = {
   env: KvEnv;
   reasoning?: string;
 };
-
-// ///////////////////////////////////////////////////////////////////////////
-// Schema for LLM to decide whether to create a macro
-// ///////////////////////////////////////////////////////////////////////////
 
 const MacroDecisionSchema = z.object({
   needsNewMacro: z.boolean(),
@@ -107,10 +89,6 @@ const ProgramWithMacrosSchema = z.object({
   program: SajProgram,
 });
 
-// ///////////////////////////////////////////////////////////////////////////
-// Self-Extending Agent
-// ///////////////////////////////////////////////////////////////////////////
-
 export class SajAgent {
   private registry: MacroRegistry;
   private handlers: EffectHandlers;
@@ -125,7 +103,6 @@ export class SajAgent {
       ...config,
     };
 
-    // Initialize registry
     if (config.registry) {
       this.registry = config.registry;
     } else if (config.kv) {
@@ -134,7 +111,6 @@ export class SajAgent {
       this.registry = new InMemoryMacroRegistry();
     }
 
-    // Initialize effect handlers
     if (config.handlers) {
       this.handlers = config.handlers;
     } else if (config.kv) {
@@ -157,9 +133,6 @@ export class SajAgent {
     this.log("Initialized with builtin macros");
   }
 
-  /**
-   * Execute a task, potentially creating new macros if needed
-   */
   async execute(task: AgentTask): Promise<AgentResult> {
     await this.initialize();
 
@@ -170,7 +143,6 @@ export class SajAgent {
     const provider = task.provider ?? this.config.provider;
     const client = fromEnv(provider);
 
-    // Step 1: Search for relevant macros
     this.log("Searching for relevant macros...");
     const relevantMacros = await this.registry.search(
       task.goal,
@@ -178,7 +150,6 @@ export class SajAgent {
     );
     this.log(`Found ${relevantMacros.length} relevant macros`);
 
-    // Step 2: Check if we need to create a new macro
     if (this.config.enableMacroCreation && relevantMacros.length < 3) {
       this.log("Checking if new macro is needed...");
 
@@ -193,15 +164,10 @@ ${formatMacrosForPrompt(relevantMacros)}
 Consider creating a new macro if:
 1. The task requires a capability that doesn't exist
 2. The capability would be useful for future tasks
-3. It can be expressed as a pure function (no side effects in the procedure itself)
+3. It can be expressed as a pure function
 
-Don't create macros for:
-- One-off calculations
-- Tasks that are already well-covered by existing macros
-- Complex operations that require effects (those should use effect expressions)`,
-        userPrompt: `Task: ${task.goal}
-
-Should we create a new macro for this task? If yes, provide a specification.`,
+Don't create macros for one-off calculations or tasks already well-covered.`,
+        userPrompt: `Task: ${task.goal}\n\nShould we create a new macro?`,
         temperature: 0.3,
       });
 
@@ -211,7 +177,6 @@ Should we create a new macro for this task? If yes, provide a specification.`,
           this.log(`Creating new macro: ${spec.name}`);
           logs.push(`Creating new macro: ${spec.name} - ${spec.description}`);
 
-          // Generate the macro implementation
           const implResult = await client.generate({
             schema: MacroImplementationSchema,
             schemaName: "macro_implementation",
@@ -230,17 +195,14 @@ Available expression types:
 - Arithmetic: { "type": "arithmeticOperation", "operation": "+", "operands": [...] }
 - Comparison: { "type": "comparativeOperation", "operation": ">", "operands": [...] }
 - Conditional: { "type": "conditional", "condition": {...}, "trueReturn": {...}, "falseReturn": {...} }
-- Procedure calls: { "type": "procedureCall", "procedure": { "type": "variable", "key": "macroName" }, "arguments": [...] }
 
-You can call other macros that are available:
+Available macros:
 ${formatMacrosForPrompt(relevantMacros)}`,
             userPrompt: `Implement this macro:
 Name: ${spec.name}
 Description: ${spec.description}
 Inputs: ${JSON.stringify(spec.inputs)}
-Output: ${spec.outputType} - ${spec.outputDescription}
-
-Provide the procedure body and a test example.`,
+Output: ${spec.outputType} - ${spec.outputDescription}`,
             temperature: 0.2,
           });
 
@@ -268,13 +230,10 @@ Provide the procedure body and a test example.`,
       }
     }
 
-    // Step 3: Generate the program
     this.log("Generating program...");
 
-    // Build environment with macro procedures
     const env: KvEnv = { ...(task.env ?? {}) };
     for (const macro of relevantMacros) {
-      // Create closure for each macro
       env[macro.name] = {
         type: "procedureClosure",
         procedure: macro.procedure,
@@ -287,19 +246,17 @@ Provide the procedure body and a test example.`,
       schemaName: "saj_program_with_macros",
       systemPrompt: `You are generating SAJ programs to accomplish tasks.
 
-Available macros (already loaded in environment, call them directly):
+Available macros (already loaded in environment):
 ${formatMacrosForPrompt(relevantMacros)}
 
-To call a macro, use:
+To call a macro:
 {
   "type": "procedureCall",
   "procedure": { "type": "variable", "key": "macroName" },
   "arguments": [...]
 }
 
-${task.context ? `Additional context: ${task.context}` : ""}
-
-Generate a SAJ program that accomplishes the task. Use existing macros when possible.`,
+${task.context ? `Context: ${task.context}` : ""}`,
       userPrompt: task.goal,
       temperature: 0.5,
     });
@@ -320,7 +277,6 @@ Generate a SAJ program that accomplishes the task. Use existing macros when poss
     const { program, reasoning, macrosUsed: usedMacros } = programResult.data;
     macrosUsed.push(...(usedMacros as string[]));
 
-    // Step 4: Execute the program
     this.log("Executing program...");
     logs.push(`Executing: ${JSON.stringify(program).substring(0, 100)}...`);
 
@@ -330,7 +286,6 @@ Generate a SAJ program that accomplishes the task. Use existing macros when poss
         handlers: this.handlers,
       });
 
-      // Record successful usage
       for (const macroName of macrosUsed) {
         await this.registry.recordUsage(macroName, true);
       }
@@ -348,7 +303,6 @@ Generate a SAJ program that accomplishes the task. Use existing macros when poss
         reasoning: reasoning as string,
       };
     } catch (error) {
-      // Record failed usage
       for (const macroName of macrosUsed) {
         await this.registry.recordUsage(macroName, false);
       }
@@ -368,13 +322,7 @@ Generate a SAJ program that accomplishes the task. Use existing macros when poss
     }
   }
 
-  /**
-   * Multi-step execution with refinement
-   */
-  async executeWithRefinement(
-    task: AgentTask,
-    maxAttempts = 3
-  ): Promise<AgentResult> {
+  async executeWithRefinement(task: AgentTask, maxAttempts = 3): Promise<AgentResult> {
     let lastResult: AgentResult | null = null;
     let context = task.context ?? "";
 
@@ -401,34 +349,21 @@ Generate a SAJ program that accomplishes the task. Use existing macros when poss
     return lastResult!;
   }
 
-  /**
-   * Get all available macros
-   */
   async listMacros(): Promise<Macro[]> {
     await this.initialize();
     return this.registry.list();
   }
 
-  /**
-   * Search for macros
-   */
   async searchMacros(query: string, limit?: number): Promise<Macro[]> {
     await this.initialize();
     return this.registry.search(query, limit);
   }
 
-  /**
-   * Manually add a macro
-   */
   async addMacro(macro: Macro): Promise<void> {
     await this.initialize();
     await this.registry.store(macro);
   }
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Convenience factory
-// ///////////////////////////////////////////////////////////////////////////
 
 export function createAgent(config: AgentConfig = {}): SajAgent {
   return new SajAgent(config);

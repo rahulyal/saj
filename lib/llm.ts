@@ -1,21 +1,10 @@
 /**
  * Lightweight LLM Adapter for Structured Outputs
  *
- * A simple, Deno Deploy-native adapter for getting structured JSON outputs
- * from OpenAI and Anthropic APIs. No external dependencies beyond Zod.
- *
- * Features:
- * - Zod schema → JSON Schema conversion
- * - OpenAI Structured Outputs (json_schema response format)
- * - Anthropic Structured Outputs (tool_use pattern)
- * - Automatic validation and typed responses
+ * Zod schema -> JSON Schema conversion with OpenAI and Anthropic API support.
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-
-// ///////////////////////////////////////////////////////////////////////////
-// Types
-// ///////////////////////////////////////////////////////////////////////////
 
 export type LLMProvider = "openai" | "anthropic";
 
@@ -34,7 +23,6 @@ export type StructuredOutputOptions<T extends z.ZodType> = {
   userPrompt: string;
   temperature?: number;
   maxTokens?: number;
-  /** Use strict JSON schema mode (OpenAI only). Set to false for complex recursive schemas. */
   strict?: boolean;
 };
 
@@ -54,10 +42,6 @@ export type LLMError = {
   status?: number;
   raw?: unknown;
 };
-
-// ///////////////////////////////////////////////////////////////////////////
-// Zod to JSON Schema Converter
-// ///////////////////////////////////////////////////////////////////////////
 
 type JSONSchema = {
   type?: string;
@@ -79,56 +63,41 @@ type JSONSchema = {
   additionalProperties?: boolean | JSONSchema;
 };
 
-/**
- * Converts a Zod schema to JSON Schema
- * Handles common Zod types used in SAJ
- * Uses a WeakSet to track visited schemas and prevent infinite recursion
- */
 export function zodToJsonSchema(
   schema: z.ZodType,
   visited: WeakSet<z.ZodType> = new WeakSet(),
 ): JSONSchema {
-  // Check for circular reference
   if (visited.has(schema)) {
-    // Return a permissive schema for circular references
     return {};
   }
   visited.add(schema);
 
-  // Handle ZodEffects (refinements, transforms, etc.)
   if (schema instanceof z.ZodEffects) {
     return zodToJsonSchema(schema._def.schema, visited);
   }
 
-  // Handle ZodLazy - evaluate once and cache
   if (schema instanceof z.ZodLazy) {
     const innerSchema = schema._def.getter();
-    // For lazy schemas, we need to be careful about recursion
-    // If we've seen this exact lazy schema, return permissive
     if (visited.has(innerSchema)) {
       return {};
     }
     return zodToJsonSchema(innerSchema, visited);
   }
 
-  // Handle ZodOptional
   if (schema instanceof z.ZodOptional) {
     return zodToJsonSchema(schema._def.innerType, visited);
   }
 
-  // Handle ZodNullable
   if (schema instanceof z.ZodNullable) {
     const inner = zodToJsonSchema(schema._def.innerType, visited);
     return { anyOf: [inner, { type: "null" }] };
   }
 
-  // Handle ZodDefault
   if (schema instanceof z.ZodDefault) {
     const inner = zodToJsonSchema(schema._def.innerType, visited);
     return { ...inner, default: schema._def.defaultValue() };
   }
 
-  // Primitives
   if (schema instanceof z.ZodString) {
     const result: JSONSchema = { type: "string" };
     if (schema._def.checks) {
@@ -166,13 +135,11 @@ export function zodToJsonSchema(
     return {};
   }
 
-  // Literal
   if (schema instanceof z.ZodLiteral) {
     const value = schema._def.value;
     return { const: value };
   }
 
-  // Enum
   if (schema instanceof z.ZodEnum) {
     return { type: "string", enum: schema._def.values };
   }
@@ -182,7 +149,6 @@ export function zodToJsonSchema(
     return { enum: values };
   }
 
-  // Arrays
   if (schema instanceof z.ZodArray) {
     return {
       type: "array",
@@ -190,7 +156,6 @@ export function zodToJsonSchema(
     };
   }
 
-  // Objects
   if (schema instanceof z.ZodObject) {
     const shape = schema._def.shape();
     const properties: Record<string, JSONSchema> = {};
@@ -199,7 +164,6 @@ export function zodToJsonSchema(
     for (const [key, value] of Object.entries(shape)) {
       properties[key] = zodToJsonSchema(value as z.ZodType, visited);
 
-      // Check if field is required (not optional)
       if (
         !(value instanceof z.ZodOptional) &&
         !(value instanceof z.ZodDefault)
@@ -216,7 +180,6 @@ export function zodToJsonSchema(
     };
   }
 
-  // Records
   if (schema instanceof z.ZodRecord) {
     return {
       type: "object",
@@ -224,7 +187,6 @@ export function zodToJsonSchema(
     };
   }
 
-  // Union
   if (schema instanceof z.ZodUnion) {
     const options = schema._def.options as z.ZodType[];
     return {
@@ -232,7 +194,6 @@ export function zodToJsonSchema(
     };
   }
 
-  // Discriminated Union
   if (schema instanceof z.ZodDiscriminatedUnion) {
     const options = [...schema._def.options.values()] as z.ZodType[];
     return {
@@ -240,7 +201,6 @@ export function zodToJsonSchema(
     };
   }
 
-  // Intersection
   if (schema instanceof z.ZodIntersection) {
     return {
       allOf: [
@@ -250,31 +210,22 @@ export function zodToJsonSchema(
     };
   }
 
-  // Tuple - convert to array with items as a schema that allows any of the tuple types
   if (schema instanceof z.ZodTuple) {
     const tupleItems = (schema._def.items as z.ZodType[]).map((item) =>
       zodToJsonSchema(item, visited),
     );
-    // For JSON Schema, we use prefixItems for tuples (JSON Schema draft 2020-12)
-    // But for compatibility, we'll use anyOf for items
     return {
       type: "array",
       items: tupleItems.length === 1 ? tupleItems[0] : { anyOf: tupleItems },
     };
   }
 
-  // Unknown / Any - allow anything
   if (schema instanceof z.ZodUnknown || schema instanceof z.ZodAny) {
     return {};
   }
 
-  // Fallback
   return {};
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// OpenAI Adapter
-// ///////////////////////////////////////////////////////////////////////////
 
 const OPENAI_MODELS = {
   default: "gpt-5-nano",
@@ -290,9 +241,6 @@ async function callOpenAI<T extends z.ZodType>(
 ): Promise<LLMResponse<z.infer<T>> | LLMError> {
   const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
   const model = config.model ?? OPENAI_MODELS.default;
-
-  // Determine if we should use strict JSON schema mode or simple json_object mode
-  // Strict mode doesn't work well with complex recursive schemas
   const useStrictMode = options.strict ?? false;
 
   const messages = [];
@@ -301,7 +249,6 @@ async function callOpenAI<T extends z.ZodType>(
     messages.push({ role: "system", content: options.systemPrompt });
   }
 
-  // For json_object mode, we need to mention JSON in the prompt
   let userContent = options.userPrompt;
   if (!useStrictMode) {
     userContent = `${options.userPrompt}\n\nRespond with valid JSON only.`;
@@ -309,7 +256,6 @@ async function callOpenAI<T extends z.ZodType>(
 
   messages.push({ role: "user", content: userContent });
 
-  // Build response_format based on mode
   let response_format: Record<string, unknown>;
   if (useStrictMode) {
     const jsonSchema = zodToJsonSchema(options.schema);
@@ -324,7 +270,6 @@ async function callOpenAI<T extends z.ZodType>(
       },
     };
   } else {
-    // Use simple json_object mode - more flexible, works with recursive schemas
     response_format = { type: "json_object" };
   }
 
@@ -375,7 +320,6 @@ async function callOpenAI<T extends z.ZodType>(
       };
     }
 
-    // Parse JSON
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
@@ -387,7 +331,6 @@ async function callOpenAI<T extends z.ZodType>(
       };
     }
 
-    // Validate with Zod
     const validated = options.schema.safeParse(parsed);
     if (!validated.success) {
       return {
@@ -416,10 +359,6 @@ async function callOpenAI<T extends z.ZodType>(
   }
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Anthropic Adapter
-// ///////////////////////////////////////////////////////////////////////////
-
 const ANTHROPIC_MODELS = {
   default: "claude-sonnet-4-20250514",
   fast: "claude-haiku-4-20250514",
@@ -436,7 +375,6 @@ async function callAnthropic<T extends z.ZodType>(
   const jsonSchema = zodToJsonSchema(options.schema);
   const schemaName = options.schemaName ?? "structured_response";
 
-  // Anthropic uses tool_use for structured outputs
   const tool = {
     name: schemaName,
     description:
@@ -486,7 +424,6 @@ async function callAnthropic<T extends z.ZodType>(
 
     const data = await response.json();
 
-    // Find tool_use content block
     const toolUse = data.content?.find(
       (block: { type: string }) => block.type === "tool_use",
     );
@@ -501,7 +438,6 @@ async function callAnthropic<T extends z.ZodType>(
 
     const parsed = toolUse.input;
 
-    // Validate with Zod
     const validated = options.schema.safeParse(parsed);
     if (!validated.success) {
       return {
@@ -530,18 +466,8 @@ async function callAnthropic<T extends z.ZodType>(
   }
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Main API
-// ///////////////////////////////////////////////////////////////////////////
-
-/**
- * Create an LLM client for structured outputs
- */
 export function createLLMClient(config: LLMConfig) {
   return {
-    /**
-     * Generate structured output matching the provided Zod schema
-     */
     async generate<T extends z.ZodType>(
       options: StructuredOutputOptions<T>,
     ): Promise<LLMResponse<z.infer<T>> | LLMError> {
@@ -558,9 +484,6 @@ export function createLLMClient(config: LLMConfig) {
       }
     },
 
-    /**
-     * Generate with automatic retry on validation errors
-     */
     async generateWithRetry<T extends z.ZodType>(
       options: StructuredOutputOptions<T>,
       maxAttempts = 2,
@@ -576,7 +499,6 @@ export function createLLMClient(config: LLMConfig) {
 
         lastError = result;
 
-        // Only retry on validation errors
         if (result.type !== "validation_error") {
           return result;
         }
@@ -591,18 +513,12 @@ export function createLLMClient(config: LLMConfig) {
   };
 }
 
-/**
- * Type guard to check if result is an error
- */
 export function isError<T>(
   result: LLMResponse<T> | LLMError,
 ): result is LLMError {
   return "type" in result && "message" in result && !("data" in result);
 }
 
-/**
- * Helper to create OpenAI client
- */
 export function openai(apiKey: string, model?: string) {
   return createLLMClient({
     provider: "openai",
@@ -611,9 +527,6 @@ export function openai(apiKey: string, model?: string) {
   });
 }
 
-/**
- * Helper to create Anthropic client
- */
 export function anthropic(apiKey: string, model?: string) {
   return createLLMClient({
     provider: "anthropic",
@@ -622,14 +535,6 @@ export function anthropic(apiKey: string, model?: string) {
   });
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Convenience: Auto-detect provider from environment
-// ///////////////////////////////////////////////////////////////////////////
-
-/**
- * Create an LLM client from environment variables
- * Checks ANTHROPIC_API_KEY first, then OPENAI_API_KEY
- */
 export function fromEnv(preferredProvider?: LLMProvider) {
   const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
   const openaiKey = Deno.env.get("OPENAI_API_KEY");
@@ -642,7 +547,6 @@ export function fromEnv(preferredProvider?: LLMProvider) {
     return openai(openaiKey);
   }
 
-  // Auto-detect
   if (anthropicKey) {
     return anthropic(anthropicKey);
   }

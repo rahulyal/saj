@@ -2,32 +2,17 @@
  * SAJ Macro System
  *
  * Macros are reusable SAJ procedures stored in KV with metadata.
- * The agent can create, search, and compose macros to extend its capabilities.
- *
- * Key insight: Tool calling becomes native - tools are just procedures in KV.
+ * Tool calling becomes native - tools are just procedures in KV.
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { SajProcedure, SajExpression } from "../schema.ts";
-
-// ///////////////////////////////////////////////////////////////////////////
-// Macro Schema
-// ///////////////////////////////////////////////////////////////////////////
+import { SajProcedure } from "../schema.ts";
 
 export const MacroSchema = z.object({
-  // Unique identifier
   name: z.string(),
-
-  // Human-readable description for semantic search
   description: z.string(),
-
-  // Keywords for search
   tags: z.array(z.string()),
-
-  // The SAJ procedure definition
   procedure: SajProcedure,
-
-  // Input/output documentation
   inputs: z.array(
     z.object({
       name: z.string(),
@@ -37,17 +22,13 @@ export const MacroSchema = z.object({
   ),
   outputType: z.string(),
   outputDescription: z.string(),
-
-  // Usage examples (for few-shot prompting)
   examples: z.array(
     z.object({
       description: z.string(),
-      call: z.any(), // SajProcedureCall
+      call: z.any(),
       expectedResult: z.any(),
     })
   ),
-
-  // Metadata
   createdAt: z.string(),
   usageCount: z.number().default(0),
   successRate: z.number().default(1.0),
@@ -55,33 +36,14 @@ export const MacroSchema = z.object({
 
 export type Macro = z.infer<typeof MacroSchema>;
 
-// ///////////////////////////////////////////////////////////////////////////
-// Macro Registry Interface
-// ///////////////////////////////////////////////////////////////////////////
-
 export interface MacroRegistry {
-  // Store a macro
   store(macro: Macro): Promise<void>;
-
-  // Get a macro by name
   get(name: string): Promise<Macro | null>;
-
-  // Delete a macro
   delete(name: string): Promise<void>;
-
-  // Search macros by query (semantic/keyword)
   search(query: string, limit?: number): Promise<Macro[]>;
-
-  // List all macros
   list(prefix?: string): Promise<Macro[]>;
-
-  // Update usage stats
   recordUsage(name: string, success: boolean): Promise<void>;
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// In-Memory Registry (for testing/local dev)
-// ///////////////////////////////////////////////////////////////////////////
 
 export class InMemoryMacroRegistry implements MacroRegistry {
   private macros = new Map<string, Macro>();
@@ -105,18 +67,15 @@ export class InMemoryMacroRegistry implements MacroRegistry {
     const scored = [...this.macros.values()].map((macro) => {
       let score = 0;
 
-      // Name match (highest weight)
       if (macro.name.toLowerCase().includes(queryLower)) {
         score += 10;
       }
 
-      // Description match
       const descLower = macro.description.toLowerCase();
       for (const term of queryTerms) {
         if (descLower.includes(term)) score += 3;
       }
 
-      // Tag match
       for (const tag of macro.tags) {
         const tagLower = tag.toLowerCase();
         for (const term of queryTerms) {
@@ -124,7 +83,6 @@ export class InMemoryMacroRegistry implements MacroRegistry {
         }
       }
 
-      // Boost by usage and success rate
       score *= 1 + macro.usageCount * 0.01;
       score *= macro.successRate;
 
@@ -146,15 +104,10 @@ export class InMemoryMacroRegistry implements MacroRegistry {
     const macro = this.macros.get(name);
     if (macro) {
       macro.usageCount++;
-      // Exponential moving average for success rate
       macro.successRate = macro.successRate * 0.9 + (success ? 1 : 0) * 0.1;
     }
   }
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Deno KV Registry (for production)
-// ///////////////////////////////////////////////////////////////////////////
 
 export class DenoKvMacroRegistry implements MacroRegistry {
   constructor(private kv: Deno.Kv, private prefix = "macros") {}
@@ -166,7 +119,6 @@ export class DenoKvMacroRegistry implements MacroRegistry {
   async store(macro: Macro): Promise<void> {
     await this.kv.set(this.key(macro.name), macro);
 
-    // Also index by tags for faster search
     for (const tag of macro.tags) {
       await this.kv.set([this.prefix, "_tags", tag, macro.name], true);
     }
@@ -180,7 +132,6 @@ export class DenoKvMacroRegistry implements MacroRegistry {
   async delete(name: string): Promise<void> {
     const macro = await this.get(name);
     if (macro) {
-      // Remove tag indexes
       for (const tag of macro.tags) {
         await this.kv.delete([this.prefix, "_tags", tag, macro.name]);
       }
@@ -189,8 +140,6 @@ export class DenoKvMacroRegistry implements MacroRegistry {
   }
 
   async search(query: string, limit = 10): Promise<Macro[]> {
-    // Simple implementation: load all and filter
-    // For production, you'd want embedding-based search
     const all = await this.list();
     const queryLower = query.toLowerCase();
     const queryTerms = queryLower.split(/\s+/);
@@ -230,7 +179,6 @@ export class DenoKvMacroRegistry implements MacroRegistry {
     const iter = this.kv.list<Macro>({ prefix: [this.prefix] });
 
     for await (const entry of iter) {
-      // Skip tag indexes
       if (entry.key[1] === "_tags") continue;
       if (entry.value) macros.push(entry.value);
     }
@@ -247,10 +195,6 @@ export class DenoKvMacroRegistry implements MacroRegistry {
     }
   }
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Built-in Macros (Standard Library)
-// ///////////////////////////////////////////////////////////////////////////
 
 export const BUILTIN_MACROS: Macro[] = [
   {
@@ -493,10 +437,6 @@ export const BUILTIN_MACROS: Macro[] = [
   },
 ];
 
-// ///////////////////////////////////////////////////////////////////////////
-// Initialize registry with builtins
-// ///////////////////////////////////////////////////////////////////////////
-
 export async function initializeRegistry(registry: MacroRegistry): Promise<void> {
   for (const macro of BUILTIN_MACROS) {
     const existing = await registry.get(macro.name);
@@ -505,10 +445,6 @@ export async function initializeRegistry(registry: MacroRegistry): Promise<void>
     }
   }
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Format macros for LLM context
-// ///////////////////////////////////////////////////////////////////////////
 
 export function formatMacrosForPrompt(macros: Macro[]): string {
   if (macros.length === 0) return "No relevant macros found.";

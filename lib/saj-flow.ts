@@ -1,8 +1,7 @@
 /**
  * SAJ Flow Integration
  *
- * LLM-powered steps for generating and executing SAJ programs
- * using the lightweight LLM adapter.
+ * LLM-powered steps for generating and executing SAJ programs.
  */
 
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
@@ -16,18 +15,12 @@ import {
 } from "../evaluator.ts";
 import {
   createLLMClient,
-  openai,
-  anthropic,
   fromEnv,
   isError,
   type LLMProvider,
   type LLMResponse,
   type LLMError,
 } from "./llm.ts";
-
-// ///////////////////////////////////////////////////////////////////////////
-// Types for flow integration
-// ///////////////////////////////////////////////////////////////////////////
 
 export type StepMeta = {
   name: string;
@@ -54,10 +47,6 @@ export type Step<TInput, TOutput> = {
   (input: TInput, ctx?: StepContext): Promise<TOutput>;
   meta: StepMeta;
 };
-
-// ///////////////////////////////////////////////////////////////////////////
-// SAJ Schema Documentation for LLM
-// ///////////////////////////////////////////////////////////////////////////
 
 const SAJ_SCHEMA_DOCS = `
 SAJ (Scheme As JSON) is a JSON-based programming language. Programs are JSON objects with a "type" field.
@@ -101,10 +90,6 @@ SAJ (Scheme As JSON) is a JSON-based programming language. Programs are JSON obj
 - Let (bind result): { "type": "effect", "action": "let", "binding": "varname", "value": <expr>, "body": <expr> }
 `;
 
-// ///////////////////////////////////////////////////////////////////////////
-// Generate SAJ Step
-// ///////////////////////////////////////////////////////////////////////////
-
 export type GenerateSajInput = {
   prompt: string;
   context?: string;
@@ -138,9 +123,6 @@ export type GenerateSajConfig = {
   maxAttempts?: number;
 };
 
-/**
- * Creates an LLM step that generates SAJ programs from natural language
- */
 export function createGenerateSajStep(
   config: GenerateSajConfig = {},
 ): Step<GenerateSajInput, GenerateSajOutput> {
@@ -160,7 +142,6 @@ export function createGenerateSajStep(
     ctx?.onStart?.("generateSaj");
     const start = performance.now();
 
-    // Determine provider and create client
     const provider = input.provider ?? config.provider;
     let client;
 
@@ -171,7 +152,6 @@ export function createGenerateSajStep(
         model: input.model ?? config.defaultModel,
       });
     } else {
-      // Auto-detect from environment
       client = fromEnv(provider);
     }
 
@@ -185,20 +165,7 @@ Generate valid SAJ programs based on user requests.
 
 IMPORTANT: Always respond with a JSON object containing exactly these two fields:
 - "description": A brief description of what the program does
-- "program": The SAJ program (a valid SAJ expression)
-
-Example response format:
-{
-  "description": "Adds two numbers",
-  "program": {
-    "type": "arithmeticOperation",
-    "operation": "+",
-    "operands": [
-      { "type": "number", "value": 2 },
-      { "type": "number", "value": 3 }
-    ]
-  }
-}`;
+- "program": The SAJ program (a valid SAJ expression)`;
 
     ctx?.onAttempt?.(
       "generateSaj",
@@ -238,7 +205,7 @@ Example response format:
         : undefined,
     };
 
-    console.log(`[generateSaj] ✓ ${durationMs}ms | ${result.model}`);
+    console.log(`[generateSaj] ${durationMs}ms | ${result.model}`);
     ctx?.onComplete?.("generateSaj", output, meta);
 
     return output;
@@ -252,10 +219,6 @@ Example response format:
     },
   });
 }
-
-// ///////////////////////////////////////////////////////////////////////////
-// Execute SAJ Step
-// ///////////////////////////////////////////////////////////////////////////
 
 export type ExecuteSajInput = {
   program: z.infer<typeof SajProgram>;
@@ -279,9 +242,6 @@ const ExecuteSajOutputSchema = z.object({
   logs: z.array(z.string()),
 });
 
-/**
- * Creates a step that executes SAJ programs
- */
 export function createExecuteSajStep(config?: {
   handlers?: EffectHandlers;
   kv?: Deno.Kv;
@@ -321,7 +281,7 @@ export function createExecuteSajStep(config?: {
 
       const meta: RunMeta = { durationMs };
 
-      console.log(`[executeSaj] ✓ ${durationMs}ms`);
+      console.log(`[executeSaj] ${durationMs}ms`);
       ctx?.onComplete?.("executeSaj", result, meta);
 
       return result;
@@ -341,10 +301,6 @@ export function createExecuteSajStep(config?: {
   });
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Combined Generate & Execute Flow
-// ///////////////////////////////////////////////////////////////////////////
-
 export type GenerateAndRunInput = {
   prompt: string;
   context?: string;
@@ -360,9 +316,6 @@ export type GenerateAndRunOutput = {
   logs: string[];
 };
 
-/**
- * Creates a combined flow that generates and executes SAJ programs
- */
 export function createGenerateAndRunFlow(
   config: GenerateSajConfig & {
     handlers?: EffectHandlers;
@@ -380,7 +333,6 @@ export function createGenerateAndRunFlow(
     input: GenerateAndRunInput,
     ctx?: StepContext,
   ): Promise<GenerateAndRunOutput> => {
-    // Step 1: Generate
     const generated = await generateStep(
       {
         prompt: input.prompt,
@@ -390,7 +342,6 @@ export function createGenerateAndRunFlow(
       ctx,
     );
 
-    // Step 2: Execute
     const executed = await executeStep(
       { program: generated.program, env: input.env },
       ctx,
@@ -425,10 +376,6 @@ export function createGenerateAndRunFlow(
   });
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Iterative Refinement Flow
-// ///////////////////////////////////////////////////////////////////////////
-
 export type IterativeFlowInput = {
   goal: string;
   maxIterations?: number;
@@ -447,9 +394,6 @@ export type IterativeFlowOutput = {
   env: KvEnv;
 };
 
-/**
- * Creates an iterative flow where the LLM can refine its approach based on results
- */
 export function createIterativeFlow(
   config: GenerateSajConfig & {
     handlers?: EffectHandlers;
@@ -499,12 +443,10 @@ export function createIterativeFlow(
 
         currentEnv = result.env;
 
-        // Check if we should continue (simple heuristic: stop if result is truthy and no errors)
         if (result.result !== null && result.result !== undefined) {
           break;
         }
       } catch (error) {
-        // On error, try to refine the prompt
         currentPrompt = `${input.goal}\n\nPrevious attempt failed with: ${
           (error as Error).message
         }\nPlease try a different approach.`;
@@ -543,6 +485,5 @@ export function createIterativeFlow(
   });
 }
 
-// Re-export LLM utilities for convenience
-export { createLLMClient, openai, anthropic, fromEnv, isError } from "./llm.ts";
+export { createLLMClient, fromEnv, isError } from "./llm.ts";
 export type { LLMProvider, LLMResponse, LLMError } from "./llm.ts";
