@@ -277,9 +277,12 @@ export function zodToJsonSchema(
 // ///////////////////////////////////////////////////////////////////////////
 
 const OPENAI_MODELS = {
-  default: "gpt-o4-mini",
-  fast: "gpt-5-mini",
+  default: "gpt-5-nano",
+  fast: "gpt-5-nano",
 };
+
+// Models that don't support custom temperature
+const FIXED_TEMPERATURE_MODELS = ["gpt-5-nano", "o1", "o1-mini", "o1-preview"];
 
 async function callOpenAI<T extends z.ZodType>(
   config: LLMConfig,
@@ -325,13 +328,21 @@ async function callOpenAI<T extends z.ZodType>(
     response_format = { type: "json_object" };
   }
 
-  const requestBody = {
+  // Some models don't support custom temperature
+  const supportsTemperature = !FIXED_TEMPERATURE_MODELS.some((m) =>
+    model.startsWith(m),
+  );
+
+  const requestBody: Record<string, unknown> = {
     model,
     messages,
-    temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens,
     response_format,
   };
+
+  if (supportsTemperature && options.temperature !== undefined) {
+    requestBody.temperature = options.temperature;
+  }
 
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
