@@ -2,10 +2,10 @@
  * SAJ Flow Integration
  *
  * LLM-powered steps for generating and executing SAJ programs
- * using the flow framework pattern.
+ * using the lightweight LLM adapter.
  */
 
-import { z } from "zod";
+import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { SajProgram, SajProgramWithMeta } from "../schema.ts";
 import {
   runProgram,
@@ -14,6 +14,16 @@ import {
   type EffectHandlers,
   type KvEnv,
 } from "../evaluator.ts";
+import {
+  createLLMClient,
+  openai,
+  anthropic,
+  fromEnv,
+  isError,
+  type LLMProvider,
+  type LLMResponse,
+  type LLMError,
+} from "./llm.ts";
 
 // ///////////////////////////////////////////////////////////////////////////
 // Types for flow integration
@@ -99,6 +109,7 @@ export type GenerateSajInput = {
   prompt: string;
   context?: string;
   model?: string;
+  provider?: LLMProvider;
 };
 
 export type GenerateSajOutput = {
@@ -111,6 +122,7 @@ const GenerateSajInputSchema = z.object({
   prompt: z.string(),
   context: z.string().optional(),
   model: z.string().optional(),
+  provider: z.enum(["openai", "anthropic"]).optional(),
 });
 
 const GenerateSajOutputSchema = z.object({
@@ -119,19 +131,24 @@ const GenerateSajOutputSchema = z.object({
   raw: z.unknown().optional(),
 });
 
+export type GenerateSajConfig = {
+  apiKey?: string;
+  provider?: LLMProvider;
+  defaultModel?: string;
+  maxAttempts?: number;
+};
+
 /**
  * Creates an LLM step that generates SAJ programs from natural language
  */
-export function createGenerateSajStep(config: {
-  apiKey: string;
-  defaultModel?: string;
-  maxAttempts?: number;
-}): Step<GenerateSajInput, GenerateSajOutput> {
-  const { apiKey, defaultModel = "gpt-4o", maxAttempts = 2 } = config;
+export function createGenerateSajStep(
+  config: GenerateSajConfig = {},
+): Step<GenerateSajInput, GenerateSajOutput> {
+  const { maxAttempts = 2 } = config;
 
   const step = async (
     input: GenerateSajInput,
-    ctx?: StepContext
+    ctx?: StepContext,
   ): Promise<GenerateSajOutput> => {
     const parsed = GenerateSajInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -142,89 +159,89 @@ export function createGenerateSajStep(config: {
 
     ctx?.onStart?.("generateSaj");
     const start = performance.now();
-    let lastError: Error | null = null;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const model = input.model ?? defaultModel;
-      ctx?.onAttempt?.("generateSaj", attempt, model);
+    // Determine provider and create client
+    const provider = input.provider ?? config.provider;
+    let client;
 
-      try {
-        const systemPrompt = `You are a SAJ program generator. SAJ is a JSON-based programming language.
+    if (config.apiKey && provider) {
+      client = createLLMClient({
+        provider,
+        apiKey: config.apiKey,
+        model: input.model ?? config.defaultModel,
+      });
+    } else {
+      // Auto-detect from environment
+      client = fromEnv(provider);
+    }
+
+    const systemPrompt = `You are a SAJ program generator. SAJ is a JSON-based programming language.
 
 ${SAJ_SCHEMA_DOCS}
 
 ${input.context ? `Additional context: ${input.context}` : ""}
 
-Generate valid SAJ programs based on user requests. Always return a JSON object with:
+Generate valid SAJ programs based on user requests.
+
+IMPORTANT: Always respond with a JSON object containing exactly these two fields:
 - "description": A brief description of what the program does
-- "program": The SAJ program (a valid SAJ expression or definition)
+- "program": The SAJ program (a valid SAJ expression)
 
-Be creative but ensure the program is syntactically valid.`;
+Example response format:
+{
+  "description": "Adds two numbers",
+  "program": {
+    "type": "arithmeticOperation",
+    "operation": "+",
+    "operands": [
+      { "type": "number", "value": 2 },
+      { "type": "number", "value": 3 }
+    ]
+  }
+}`;
 
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: input.prompt },
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.7,
-          }),
-        });
+    ctx?.onAttempt?.(
+      "generateSaj",
+      1,
+      input.model ?? config.defaultModel ?? "default",
+    );
 
-        if (!response.ok) {
-          throw new Error(`OpenAI API error: ${response.status}`);
-        }
+    const result = await client.generateWithRetry(
+      {
+        schema: SajProgramWithMeta,
+        schemaName: "saj_program",
+        schemaDescription: "A SAJ program with description",
+        systemPrompt,
+        userPrompt: input.prompt,
+        temperature: 0.7,
+      },
+      maxAttempts,
+    );
 
-        const data = await response.json();
-        const content = data.choices[0]?.message?.content;
-
-        if (!content) {
-          throw new Error("No response from LLM");
-        }
-
-        const generated = JSON.parse(content);
-        const validated = SajProgramWithMeta.safeParse(generated);
-
-        if (!validated.success) {
-          throw new Error(`Invalid SAJ program: ${validated.error.message}`);
-        }
-
-        const durationMs = Math.round(performance.now() - start);
-        const result: GenerateSajOutput = {
-          description: validated.data.description,
-          program: validated.data.program,
-        };
-
-        const meta: RunMeta = {
-          durationMs,
-          model,
-          attempt,
-          tokens: data.usage
-            ? { input: data.usage.prompt_tokens, output: data.usage.completion_tokens }
-            : undefined,
-        };
-
-        console.log(`[generateSaj] ✓ ${durationMs}ms | ${model} | attempt ${attempt}`);
-        ctx?.onComplete?.("generateSaj", result, meta);
-
-        return result;
-      } catch (e) {
-        lastError = e as Error;
-        console.error(`[generateSaj] ✗ attempt ${attempt}/${maxAttempts}: ${lastError.message}`);
-
-        if (attempt === maxAttempts) break;
-      }
+    if (isError(result)) {
+      const error = new Error(result.message);
+      ctx?.onError?.("generateSaj", error);
+      throw error;
     }
 
-    ctx?.onError?.("generateSaj", lastError!);
-    throw lastError;
+    const durationMs = Math.round(performance.now() - start);
+    const output: GenerateSajOutput = {
+      description: result.data.description as string,
+      program: result.data.program as z.infer<typeof SajProgram>,
+    };
+
+    const meta: RunMeta = {
+      durationMs,
+      model: result.model,
+      tokens: result.usage
+        ? { input: result.usage.inputTokens, output: result.usage.outputTokens }
+        : undefined,
+    };
+
+    console.log(`[generateSaj] ✓ ${durationMs}ms | ${result.model}`);
+    ctx?.onComplete?.("generateSaj", output, meta);
+
+    return output;
   };
 
   return Object.assign(step, {
@@ -271,7 +288,7 @@ export function createExecuteSajStep(config?: {
 }): Step<ExecuteSajInput, ExecuteSajOutput> {
   const step = async (
     input: ExecuteSajInput,
-    ctx?: StepContext
+    ctx?: StepContext,
   ): Promise<ExecuteSajOutput> => {
     const parsed = ExecuteSajInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -284,12 +301,14 @@ export function createExecuteSajStep(config?: {
     const start = performance.now();
 
     try {
-      const handlers = config?.handlers ?? (config?.kv
-        ? createDenoKvHandlers(config.kv)
-        : createInMemoryHandlers());
+      const handlers =
+        config?.handlers ??
+        (config?.kv
+          ? createDenoKvHandlers(config.kv)
+          : createInMemoryHandlers());
 
       const evalResult = await runProgram(parsed.data.program, {
-        env: parsed.data.env ?? {},
+        env: (parsed.data.env ?? {}) as KvEnv,
         handlers,
       });
 
@@ -330,6 +349,7 @@ export type GenerateAndRunInput = {
   prompt: string;
   context?: string;
   env?: KvEnv;
+  provider?: LLMProvider;
 };
 
 export type GenerateAndRunOutput = {
@@ -343,16 +363,13 @@ export type GenerateAndRunOutput = {
 /**
  * Creates a combined flow that generates and executes SAJ programs
  */
-export function createGenerateAndRunFlow(config: {
-  apiKey: string;
-  defaultModel?: string;
-  handlers?: EffectHandlers;
-  kv?: Deno.Kv;
-}): Step<GenerateAndRunInput, GenerateAndRunOutput> {
-  const generateStep = createGenerateSajStep({
-    apiKey: config.apiKey,
-    defaultModel: config.defaultModel,
-  });
+export function createGenerateAndRunFlow(
+  config: GenerateSajConfig & {
+    handlers?: EffectHandlers;
+    kv?: Deno.Kv;
+  } = {},
+): Step<GenerateAndRunInput, GenerateAndRunOutput> {
+  const generateStep = createGenerateSajStep(config);
 
   const executeStep = createExecuteSajStep({
     handlers: config.handlers,
@@ -361,18 +378,22 @@ export function createGenerateAndRunFlow(config: {
 
   const step = async (
     input: GenerateAndRunInput,
-    ctx?: StepContext
+    ctx?: StepContext,
   ): Promise<GenerateAndRunOutput> => {
     // Step 1: Generate
     const generated = await generateStep(
-      { prompt: input.prompt, context: input.context },
-      ctx
+      {
+        prompt: input.prompt,
+        context: input.context,
+        provider: input.provider,
+      },
+      ctx,
     );
 
     // Step 2: Execute
     const executed = await executeStep(
       { program: generated.program, env: input.env },
-      ctx
+      ctx,
     );
 
     return {
@@ -391,6 +412,7 @@ export function createGenerateAndRunFlow(config: {
         prompt: z.string(),
         context: z.string().optional(),
         env: z.record(z.unknown()).optional(),
+        provider: z.enum(["openai", "anthropic"]).optional(),
       }),
       outputSchema: z.object({
         description: z.string(),
@@ -411,6 +433,7 @@ export type IterativeFlowInput = {
   goal: string;
   maxIterations?: number;
   env?: KvEnv;
+  provider?: LLMProvider;
 };
 
 export type IterativeFlowOutput = {
@@ -427,17 +450,17 @@ export type IterativeFlowOutput = {
 /**
  * Creates an iterative flow where the LLM can refine its approach based on results
  */
-export function createIterativeFlow(config: {
-  apiKey: string;
-  defaultModel?: string;
-  handlers?: EffectHandlers;
-  kv?: Deno.Kv;
-}): Step<IterativeFlowInput, IterativeFlowOutput> {
+export function createIterativeFlow(
+  config: GenerateSajConfig & {
+    handlers?: EffectHandlers;
+    kv?: Deno.Kv;
+  } = {},
+): Step<IterativeFlowInput, IterativeFlowOutput> {
   const generateAndRun = createGenerateAndRunFlow(config);
 
   const step = async (
     input: IterativeFlowInput,
-    ctx?: StepContext
+    ctx?: StepContext,
   ): Promise<IterativeFlowOutput> => {
     const iterations: IterativeFlowOutput["iterations"] = [];
     let currentEnv = input.env ?? {};
@@ -446,16 +469,25 @@ export function createIterativeFlow(config: {
     let currentPrompt = input.goal;
 
     for (let i = 0; i < maxIterations; i++) {
-      const context = iterations.length > 0
-        ? `Previous attempts:\n${iterations.map((iter, idx) =>
-            `Attempt ${idx + 1}: ${JSON.stringify(iter.result)}`
-          ).join("\n")}\n\nRefine your approach based on these results.`
-        : undefined;
+      const context =
+        iterations.length > 0
+          ? `Previous attempts:\n${iterations
+              .map(
+                (iter, idx) =>
+                  `Attempt ${idx + 1}: ${JSON.stringify(iter.result)}`,
+              )
+              .join("\n")}\n\nRefine your approach based on these results.`
+          : undefined;
 
       try {
         const result = await generateAndRun(
-          { prompt: currentPrompt, context, env: currentEnv },
-          ctx
+          {
+            prompt: currentPrompt,
+            context,
+            env: currentEnv,
+            provider: input.provider,
+          },
+          ctx,
         );
 
         iterations.push({
@@ -473,7 +505,9 @@ export function createIterativeFlow(config: {
         }
       } catch (error) {
         // On error, try to refine the prompt
-        currentPrompt = `${input.goal}\n\nPrevious attempt failed with: ${(error as Error).message}\nPlease try a different approach.`;
+        currentPrompt = `${input.goal}\n\nPrevious attempt failed with: ${
+          (error as Error).message
+        }\nPlease try a different approach.`;
       }
     }
 
@@ -491,17 +525,24 @@ export function createIterativeFlow(config: {
         goal: z.string(),
         maxIterations: z.number().optional(),
         env: z.record(z.unknown()).optional(),
+        provider: z.enum(["openai", "anthropic"]).optional(),
       }),
       outputSchema: z.object({
-        iterations: z.array(z.object({
-          prompt: z.string(),
-          program: SajProgram,
-          result: z.unknown(),
-          logs: z.array(z.string()),
-        })),
+        iterations: z.array(
+          z.object({
+            prompt: z.string(),
+            program: SajProgram,
+            result: z.unknown(),
+            logs: z.array(z.string()),
+          }),
+        ),
         finalResult: z.unknown(),
         env: z.record(z.unknown()),
       }),
     },
   });
 }
+
+// Re-export LLM utilities for convenience
+export { createLLMClient, openai, anthropic, fromEnv, isError } from "./llm.ts";
+export type { LLMProvider, LLMResponse, LLMError } from "./llm.ts";

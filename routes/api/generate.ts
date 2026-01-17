@@ -1,5 +1,12 @@
 import { Handlers } from "$fresh/server.ts";
+import { z } from "zod";
 import { SajProgramWithMeta } from "../../schema.ts";
+import {
+  createLLMClient,
+  fromEnv,
+  isError,
+  type LLMProvider,
+} from "../../lib/llm.ts";
 
 // SAJ schema documentation for the LLM
 const SAJ_SCHEMA_DOCS = `
@@ -65,106 +72,123 @@ SAJ (Scheme As JSON) is a JSON-based programming language. Programs are JSON obj
 }
 `;
 
+const RequestSchema = z.object({
+  prompt: z.string().min(1),
+  provider: z.enum(["openai", "anthropic"]).optional(),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+});
+
 export const handler: Handlers = {
   async POST(req) {
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) {
-      return Response.json(
-        { error: "OPENAI_API_KEY not configured" },
-        { status: 500 }
-      );
-    }
-
     try {
-      const { prompt, model = "gpt-4o" } = await req.json();
+      const body = await req.json();
 
-      if (!prompt) {
+      // Validate request
+      const parsed = RequestSchema.safeParse(body);
+      if (!parsed.success) {
         return Response.json(
-          { error: "prompt is required" },
-          { status: 400 }
+          { error: "Invalid request", details: parsed.error.format() },
+          { status: 400 },
         );
       }
 
-      // Call OpenAI with structured output
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: "system",
-              content: `You are a SAJ program generator. SAJ is a JSON-based programming language.
+      const { prompt, provider, model, temperature } = parsed.data;
+
+      // Create LLM client - either from explicit provider or auto-detect from env
+      let client;
+      try {
+        if (provider) {
+          const apiKey =
+            provider === "anthropic"
+              ? Deno.env.get("ANTHROPIC_API_KEY")
+              : Deno.env.get("OPENAI_API_KEY");
+
+          if (!apiKey) {
+            return Response.json(
+              { error: `${provider.toUpperCase()}_API_KEY not configured` },
+              { status: 500 },
+            );
+          }
+
+          client = createLLMClient({
+            provider,
+            apiKey,
+            model,
+          });
+        } else {
+          // Auto-detect from environment
+          client = fromEnv();
+        }
+      } catch (e) {
+        return Response.json({ error: (e as Error).message }, { status: 500 });
+      }
+
+      const systemPrompt = `You are a SAJ program generator. SAJ is a JSON-based programming language.
 
 ${SAJ_SCHEMA_DOCS}
 
-Generate valid SAJ programs based on user requests. Always return a JSON object with:
-- "description": A brief description of what the program does
-- "program": The SAJ program (a valid SAJ expression or definition)
+Generate valid SAJ programs based on user requests. Be creative but ensure the program is syntactically valid according to the schema.
 
-Be creative but ensure the program is syntactically valid according to the schema.`,
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7,
-        }),
+IMPORTANT: Always respond with a JSON object containing exactly these two fields:
+- "description": A brief description of what the program does
+- "program": The SAJ program (a valid SAJ expression)
+
+Example response format:
+{
+  "description": "Adds two numbers",
+  "program": {
+    "type": "arithmeticOperation",
+    "operation": "+",
+    "operands": [
+      { "type": "number", "value": 2 },
+      { "type": "number", "value": 3 }
+    ]
+  }
+}`;
+
+      const startTime = performance.now();
+
+      const result = await client.generateWithRetry({
+        schema: SajProgramWithMeta,
+        schemaName: "saj_program",
+        schemaDescription:
+          "A SAJ program with a description of what it does and the program itself",
+        systemPrompt,
+        userPrompt: prompt,
+        temperature: temperature ?? 0.7,
       });
 
-      if (!response.ok) {
-        const error = await response.text();
+      const durationMs = Math.round(performance.now() - startTime);
+
+      if (isError(result)) {
+        // Return structured error response
         return Response.json(
-          { error: "OpenAI API error", details: error },
-          { status: response.status }
-        );
-      }
-
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
-
-      if (!content) {
-        return Response.json(
-          { error: "No response from LLM" },
-          { status: 500 }
-        );
-      }
-
-      const generated = JSON.parse(content);
-
-      // Validate the generated program
-      const parsed = SajProgramWithMeta.safeParse(generated);
-      if (!parsed.success) {
-        // Return the raw generation with validation errors for debugging
-        return Response.json({
-          success: false,
-          raw: generated,
-          validationErrors: parsed.error.format(),
-          meta: {
-            model,
-            tokens: data.usage,
+          {
+            success: false,
+            error: result.type,
+            message: result.message,
+            raw: result.raw,
+            meta: { durationMs },
           },
-        });
+          { status: result.status ?? 500 },
+        );
       }
 
       return Response.json({
         success: true,
-        description: parsed.data.description,
-        program: parsed.data.program,
+        description: result.data.description,
+        program: result.data.program,
         meta: {
-          model,
-          tokens: data.usage,
+          model: result.model,
+          durationMs,
+          tokens: result.usage,
         },
       });
     } catch (error) {
       return Response.json(
         { error: "Generation failed", message: (error as Error).message },
-        { status: 500 }
+        { status: 500 },
       );
     }
   },

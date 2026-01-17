@@ -2,11 +2,14 @@
   "lock": false,
   "tasks": {
     "check": "deno fmt --check && deno lint && deno check **/*.ts **/*.tsx",
-    "dev": "deno run -A --watch=static/,routes/ dev.ts",
-    "build": "deno run -A dev.ts build",
-    "start": "deno run -A main.ts",
-    "preview": "deno run -A main.ts",
-    "repl": "deno run -A saj.js"
+    "dev": "deno run -A --env --watch=static/,routes/ dev.ts",
+    "build": "deno run -A --env dev.ts build",
+    "start": "deno run -A --env main.ts",
+    "preview": "deno run -A --env main.ts",
+    "repl": "deno run -A --env saj.js",
+    "demo:eval": "deno run -A examples/eval-demo.ts",
+    "demo:flow": "deno run -A --env examples/flow-demo.ts",
+    "demo:llm": "deno run -A --env examples/llm-demo.ts"
   },
   "imports": {
     "$fresh/": "https://deno.land/x/fresh@1.6.8/",
@@ -16,14 +19,22 @@
     "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.5.1",
     "tailwindcss": "npm:tailwindcss@3.4.1",
     "tailwindcss/plugin": "npm:tailwindcss@3.4.1/plugin.js",
-    "zod": "https://deno.land/x/zod@v3.23.8/mod.ts",
-    "ai": "npm:ai@3.0.0",
-    "@ai-sdk/openai": "npm:@ai-sdk/openai@0.0.0"
+    "zod": "https://deno.land/x/zod@v3.23.8/mod.ts"
   },
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact"
   },
-  "nodeModulesDir": true,
-  "exclude": ["**/_fresh/*"]
+  "nodeModulesDir": "auto",
+  "exclude": [
+    "**/_fresh/*"
+  ],
+  "deploy": {
+    "project": "8a233d2e-b0c7-4349-8d53-c047b27f2b0f",
+    "exclude": [
+      "**/node_modules"
+    ],
+    "include": [],
+    "entrypoint": "main.ts"
+  }
 }

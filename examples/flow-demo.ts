@@ -2,8 +2,12 @@
  * SAJ Flow Demo
  *
  * Demonstrates LLM-powered SAJ program generation and execution
+ * with support for both OpenAI and Anthropic providers.
  *
- * Run with: deno run -A examples/flow-demo.ts
+ * Run with:
+ *   OPENAI_API_KEY=... deno run -A examples/flow-demo.ts
+ *   ANTHROPIC_API_KEY=... deno run -A examples/flow-demo.ts
+ *   # Or set both and specify which to use
  */
 
 import {
@@ -11,22 +15,31 @@ import {
   createExecuteSajStep,
   createGenerateAndRunFlow,
   createIterativeFlow,
+  type LLMProvider,
 } from "../lib/saj-flow.ts";
 
-const apiKey = Deno.env.get("OPENAI_API_KEY");
+// Detect which provider to use based on available API keys
+const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
+const openaiKey = Deno.env.get("OPENAI_API_KEY");
 
-if (!apiKey) {
-  console.error("Please set OPENAI_API_KEY environment variable");
+if (!anthropicKey && !openaiKey) {
+  console.error(
+    "Please set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable",
+  );
   Deno.exit(1);
 }
+
+const provider: LLMProvider = anthropicKey ? "anthropic" : "openai";
+console.log(`\n🤖 Using provider: ${provider}\n`);
 
 // ///////////////////////////////////////////////////////////////////////////
 // Example 1: Generate and manually execute
 // ///////////////////////////////////////////////////////////////////////////
 
-console.log("\n=== Example 1: Generate + Execute (separate steps) ===\n");
+console.log("=== Example 1: Generate + Execute (separate steps) ===\n");
 
-const generateStep = createGenerateSajStep({ apiKey });
+// The steps auto-detect provider from environment
+const generateStep = createGenerateSajStep();
 const executeStep = createExecuteSajStep();
 
 const generated = await generateStep({
@@ -48,10 +61,11 @@ console.log("Result:", executed.result);
 
 console.log("\n=== Example 2: Generate and Run (combined) ===\n");
 
-const generateAndRun = createGenerateAndRunFlow({ apiKey });
+const generateAndRun = createGenerateAndRunFlow();
 
 const result = await generateAndRun({
-  prompt: "Check if 100 is greater than 50, if yes return 'big', otherwise return 'small'",
+  prompt:
+    "Check if 100 is greater than 50, if yes return 'big', otherwise return 'small'",
 });
 
 console.log("Description:", result.description);
@@ -65,7 +79,8 @@ console.log("Result:", result.result);
 console.log("\n=== Example 3: Effects (KV store) ===\n");
 
 const effectResult = await generateAndRun({
-  prompt: "Store the number 42 in KV under key 'answer', then retrieve it and add 10 to it",
+  prompt:
+    "Store the number 42 in KV under key 'answer', then retrieve it and add 10 to it",
 });
 
 console.log("Description:", effectResult.description);
@@ -74,16 +89,39 @@ console.log("Result:", effectResult.result);
 console.log("Logs:", effectResult.logs);
 
 // ///////////////////////////////////////////////////////////////////////////
-// Example 4: Iterative refinement
+// Example 4: Explicitly choosing a provider (if both keys are available)
 // ///////////////////////////////////////////////////////////////////////////
 
-console.log("\n=== Example 4: Iterative Flow ===\n");
+if (anthropicKey && openaiKey) {
+  console.log("\n=== Example 4: Explicit Provider Selection ===\n");
 
-const iterativeFlow = createIterativeFlow({ apiKey });
+  // Force use of a specific provider
+  const anthropicResult = await generateAndRun({
+    prompt: "Return the string 'Hello from Claude!'",
+    provider: "anthropic",
+  });
+  console.log("Anthropic result:", anthropicResult.result);
+
+  const openaiResult = await generateAndRun({
+    prompt: "Return the string 'Hello from GPT!'",
+    provider: "openai",
+  });
+  console.log("OpenAI result:", openaiResult.result);
+} else {
+  console.log("\n=== Example 4: Skipped (only one provider configured) ===\n");
+}
+
+// ///////////////////////////////////////////////////////////////////////////
+// Example 5: Iterative refinement
+// ///////////////////////////////////////////////////////////////////////////
+
+console.log("\n=== Example 5: Iterative Flow ===\n");
+
+const iterativeFlow = createIterativeFlow();
 
 const iterativeResult = await iterativeFlow({
-  goal: "Create a factorial function and compute factorial of 5",
-  maxIterations: 3,
+  goal: "Calculate the sum of 1 + 2 + 3 + 4 + 5",
+  maxIterations: 2,
 });
 
 console.log("Iterations:", iterativeResult.iterations.length);
@@ -95,10 +133,10 @@ for (const [i, iter] of iterativeResult.iterations.entries()) {
 console.log("\nFinal result:", iterativeResult.finalResult);
 
 // ///////////////////////////////////////////////////////////////////////////
-// Example 5: Custom context
+// Example 6: Custom context
 // ///////////////////////////////////////////////////////////////////////////
 
-console.log("\n=== Example 5: With Context ===\n");
+console.log("\n=== Example 6: With Context ===\n");
 
 const contextResult = await generateAndRun({
   prompt: "Double the value stored in 'x'",
