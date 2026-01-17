@@ -1,7 +1,7 @@
 import { Handlers } from "$fresh/server.ts";
 import { z } from "zod";
-import { SajProgramWithMeta } from "../../../core/schema.ts";
-import { createLLMClient, fromEnv, isError } from "../../../lib/llm.ts";
+import { SajProgramWithMeta } from "../../core/schema.ts";
+import { createLLMClient, fromEnv, isError } from "../../lib/llm.ts";
 
 // SAJ schema documentation for the LLM
 const SAJ_SCHEMA_DOCS = `

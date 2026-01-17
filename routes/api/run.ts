@@ -1,6 +1,6 @@
 import { Handlers } from "$fresh/server.ts";
-import { SajProgram } from "../../../core/schema.ts";
-import { runProgram, createDenoKvHandlers, createInMemoryHandlers } from "../../../core/evaluator.ts";
+import { SajProgram } from "../../core/schema.ts";
+import { runProgram, createDenoKvHandlers, createInMemoryHandlers } from "../../core/evaluator.ts";
 
 // Use Deno KV in production, in-memory for dev
 let kv: Deno.Kv | null = null;
