@@ -47,6 +47,8 @@ export type SajProcedureCall = z.infer<typeof SajProcedureCall>;
 export type SajConditional = z.infer<typeof SajConditional>;
 export type SajDefinition = z.infer<typeof SajDefinition>;
 export type SajEffect = z.infer<typeof SajEffect>;
+export type SajList = z.infer<typeof SajList>;
+export type SajListOperation = z.infer<typeof SajListOperation>;
 
 // ///////////////////////////////////////////////////////////////////////////
 // Effects - The new system for side effects
@@ -121,6 +123,129 @@ export const SajEffect = z.discriminatedUnion("action", [
   LogEffect,
   SequenceEffect,
   LetEffect,
+]);
+
+// ///////////////////////////////////////////////////////////////////////////
+// Lists - First-class list support for math operations
+// ///////////////////////////////////////////////////////////////////////////
+
+// List literal - a list of expressions
+export const SajList: z.ZodType<{
+  type: "list";
+  elements: SajExpression[];
+}> = z.object({
+  type: z.literal("list"),
+  elements: z.lazy(() => z.array(SajExpression)),
+});
+
+// List operations
+const ListSum = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("sum"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListLength = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("length"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListHead = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("head"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListTail = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("tail"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListNth = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("nth"),
+  list: z.lazy(() => SajExpression),
+  index: z.lazy(() => SajExpression),
+});
+
+const ListConcat = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("concat"),
+  lists: z.array(z.lazy(() => SajExpression)),
+});
+
+const ListRange = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("range"),
+  start: z.lazy(() => SajExpression),
+  end: z.lazy(() => SajExpression),
+  step: z.lazy(() => SajExpression).optional(),
+});
+
+const ListMap = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("map"),
+  list: z.lazy(() => SajExpression),
+  procedure: z.lazy(() => z.union([SajVariable, SajProcedure])),
+});
+
+const ListFilter = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("filter"),
+  list: z.lazy(() => SajExpression),
+  predicate: z.lazy(() => z.union([SajVariable, SajProcedure])),
+});
+
+const ListReduce = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("reduce"),
+  list: z.lazy(() => SajExpression),
+  procedure: z.lazy(() => z.union([SajVariable, SajProcedure])),
+  initial: z.lazy(() => SajExpression),
+});
+
+const ListProduct = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("product"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListMin = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("min"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListMax = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("max"),
+  list: z.lazy(() => SajExpression),
+});
+
+const ListAverage = z.object({
+  type: z.literal("listOperation"),
+  operation: z.literal("average"),
+  list: z.lazy(() => SajExpression),
+});
+
+// All list operations
+export const SajListOperation = z.discriminatedUnion("operation", [
+  ListSum,
+  ListLength,
+  ListHead,
+  ListTail,
+  ListNth,
+  ListConcat,
+  ListRange,
+  ListMap,
+  ListFilter,
+  ListReduce,
+  ListProduct,
+  ListMin,
+  ListMax,
+  ListAverage,
 ]);
 
 // ///////////////////////////////////////////////////////////////////////////
@@ -271,6 +396,8 @@ export const SajExpression: z.ZodType<
   | SajProcedureCall
   | SajConditional
   | SajEffect
+  | SajList
+  | SajListOperation
 > = z.lazy(() =>
   z.union([
     SajNumber,
@@ -283,6 +410,8 @@ export const SajExpression: z.ZodType<
     SajProcedureCall,
     SajConditional,
     SajEffect,
+    SajList,
+    SajListOperation,
   ])
 );
 

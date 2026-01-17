@@ -305,6 +305,25 @@ export async function evaluate(
     return evaluateEffect(expr as unknown as SajEffect, env, handlers, logs);
   }
 
+  // List literal
+  if (expr.type === "list") {
+    const elements = expr.elements as SajExpression[];
+    const evaluatedElements: unknown[] = [];
+
+    for (const element of elements) {
+      const { result, logs: newLogs } = await evaluate(element, env, handlers, logs);
+      logs = newLogs;
+      evaluatedElements.push(result);
+    }
+
+    return { result: evaluatedElements, env, logs };
+  }
+
+  // List operations
+  if (expr.type === "listOperation") {
+    return evaluateListOperation(expr as Record<string, unknown>, env, handlers, logs);
+  }
+
   throw new Error(`Unknown expression type: ${expr.type}`);
 }
 
@@ -418,6 +437,281 @@ async function evaluateEffect(
 
     default:
       throw new Error(`Unknown effect action: ${(effect as { action: string }).action}`);
+  }
+}
+
+// ///////////////////////////////////////////////////////////////////////////
+// List Operation Evaluation
+// ///////////////////////////////////////////////////////////////////////////
+
+async function evaluateListOperation(
+  op: Record<string, unknown>,
+  env: KvEnv,
+  handlers: EffectHandlers,
+  logs: string[]
+): Promise<EvalResult> {
+  const operation = op.operation as string;
+
+  // Helper to evaluate and expect a list
+  async function evalList(expr: unknown): Promise<{ list: unknown[]; logs: string[] }> {
+    const { result, logs: newLogs } = await evaluate(
+      expr as SajExpression,
+      env,
+      handlers,
+      logs
+    );
+    if (!Array.isArray(result)) {
+      throw new Error(`Expected list, got ${typeof result}`);
+    }
+    return { list: result, logs: newLogs };
+  }
+
+  // Helper to apply a procedure to arguments
+  async function applyProcedure(
+    proc: unknown,
+    args: unknown[],
+    currentLogs: string[]
+  ): Promise<{ result: unknown; logs: string[] }> {
+    let closure: ProcedureClosure;
+
+    const procExpr = proc as Record<string, unknown>;
+    if (procExpr.type === "variable") {
+      const key = procExpr.key as string;
+      closure = env[key] as ProcedureClosure;
+      if (!closure || closure.type !== "procedureClosure") {
+        throw new Error(`${key} is not a procedure`);
+      }
+    } else if (procExpr.type === "procedure") {
+      closure = {
+        type: "procedureClosure",
+        procedure: procExpr as ProcedureClosure["procedure"],
+        scopedEnvironment: { ...env },
+      };
+    } else {
+      throw new Error("Expected procedure or variable reference");
+    }
+
+    // Create local scope with bound arguments
+    const localEnv = { ...closure.scopedEnvironment };
+    closure.procedure.inputs.forEach((input, i) => {
+      localEnv[input] = args[i];
+    });
+
+    // Evaluate body in local scope
+    const { result, logs: bodyLogs } = await evaluate(
+      closure.procedure.body,
+      localEnv,
+      handlers,
+      currentLogs
+    );
+
+    return { result, logs: bodyLogs };
+  }
+
+  switch (operation) {
+    case "sum": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      const result = (list as number[]).reduce((a, b) => a + b, 0);
+      return { result, env, logs: newLogs };
+    }
+
+    case "product": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      const result = (list as number[]).reduce((a, b) => a * b, 1);
+      return { result, env, logs: newLogs };
+    }
+
+    case "length": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      return { result: list.length, env, logs: newLogs };
+    }
+
+    case "head": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      if (list.length === 0) {
+        throw new Error("Cannot get head of empty list");
+      }
+      return { result: list[0], env, logs: newLogs };
+    }
+
+    case "tail": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      if (list.length === 0) {
+        throw new Error("Cannot get tail of empty list");
+      }
+      return { result: list.slice(1), env, logs: newLogs };
+    }
+
+    case "nth": {
+      const { list, logs: listLogs } = await evalList(op.list);
+      const { result: indexResult, logs: indexLogs } = await evaluate(
+        op.index as SajExpression,
+        env,
+        handlers,
+        listLogs
+      );
+      const index = indexResult as number;
+      if (index < 0 || index >= list.length) {
+        throw new Error(`Index ${index} out of bounds for list of length ${list.length}`);
+      }
+      return { result: list[index], env, logs: indexLogs };
+    }
+
+    case "concat": {
+      const lists = op.lists as SajExpression[];
+      const result: unknown[] = [];
+      let currentLogs = logs;
+
+      for (const listExpr of lists) {
+        const { list, logs: newLogs } = await evalList(listExpr);
+        currentLogs = newLogs;
+        result.push(...list);
+      }
+
+      return { result, env, logs: currentLogs };
+    }
+
+    case "range": {
+      const { result: startResult, logs: startLogs } = await evaluate(
+        op.start as SajExpression,
+        env,
+        handlers,
+        logs
+      );
+      const { result: endResult, logs: endLogs } = await evaluate(
+        op.end as SajExpression,
+        env,
+        handlers,
+        startLogs
+      );
+
+      let step = 1;
+      let currentLogs = endLogs;
+
+      if (op.step) {
+        const { result: stepResult, logs: stepLogs } = await evaluate(
+          op.step as SajExpression,
+          env,
+          handlers,
+          endLogs
+        );
+        step = stepResult as number;
+        currentLogs = stepLogs;
+      }
+
+      const start = startResult as number;
+      const end = endResult as number;
+      const result: number[] = [];
+
+      if (step > 0) {
+        for (let i = start; i < end; i += step) {
+          result.push(i);
+        }
+      } else if (step < 0) {
+        for (let i = start; i > end; i += step) {
+          result.push(i);
+        }
+      }
+
+      return { result, env, logs: currentLogs };
+    }
+
+    case "map": {
+      const { list, logs: listLogs } = await evalList(op.list);
+      const proc = op.procedure;
+      const result: unknown[] = [];
+      let currentLogs = listLogs;
+
+      for (const item of list) {
+        const { result: mappedResult, logs: newLogs } = await applyProcedure(
+          proc,
+          [item],
+          currentLogs
+        );
+        currentLogs = newLogs;
+        result.push(mappedResult);
+      }
+
+      return { result, env, logs: currentLogs };
+    }
+
+    case "filter": {
+      const { list, logs: listLogs } = await evalList(op.list);
+      const pred = op.predicate;
+      const result: unknown[] = [];
+      let currentLogs = listLogs;
+
+      for (const item of list) {
+        const { result: passResult, logs: newLogs } = await applyProcedure(
+          pred,
+          [item],
+          currentLogs
+        );
+        currentLogs = newLogs;
+        if (passResult) {
+          result.push(item);
+        }
+      }
+
+      return { result, env, logs: currentLogs };
+    }
+
+    case "reduce": {
+      const { list, logs: listLogs } = await evalList(op.list);
+      const { result: initial, logs: initLogs } = await evaluate(
+        op.initial as SajExpression,
+        env,
+        handlers,
+        listLogs
+      );
+      const proc = op.procedure;
+
+      let acc = initial;
+      let currentLogs = initLogs;
+
+      for (const item of list) {
+        const { result: newAcc, logs: newLogs } = await applyProcedure(
+          proc,
+          [acc, item],
+          currentLogs
+        );
+        acc = newAcc;
+        currentLogs = newLogs;
+      }
+
+      return { result: acc, env, logs: currentLogs };
+    }
+
+    case "min": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      if (list.length === 0) {
+        throw new Error("Cannot get min of empty list");
+      }
+      const result = Math.min(...(list as number[]));
+      return { result, env, logs: newLogs };
+    }
+
+    case "max": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      if (list.length === 0) {
+        throw new Error("Cannot get max of empty list");
+      }
+      const result = Math.max(...(list as number[]));
+      return { result, env, logs: newLogs };
+    }
+
+    case "average": {
+      const { list, logs: newLogs } = await evalList(op.list);
+      if (list.length === 0) {
+        throw new Error("Cannot get average of empty list");
+      }
+      const sum = (list as number[]).reduce((a, b) => a + b, 0);
+      const result = sum / list.length;
+      return { result, env, logs: newLogs };
+    }
+
+    default:
+      throw new Error(`Unknown list operation: ${operation}`);
   }
 }
 
