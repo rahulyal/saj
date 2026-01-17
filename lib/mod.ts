@@ -40,3 +40,24 @@ export {
   type IterativeFlowInput,
   type IterativeFlowOutput,
 } from "./saj-flow.ts";
+
+// Macro System - Reusable procedures stored in KV
+export {
+  MacroSchema,
+  type Macro,
+  type MacroRegistry,
+  InMemoryMacroRegistry,
+  DenoKvMacroRegistry,
+  BUILTIN_MACROS,
+  initializeRegistry,
+  formatMacrosForPrompt,
+} from "./macros.ts";
+
+// Self-Extending Agent
+export {
+  SajAgent,
+  createAgent,
+  type AgentConfig,
+  type AgentTask,
+  type AgentResult,
+} from "./agent.ts";
