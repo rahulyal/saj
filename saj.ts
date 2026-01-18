@@ -1012,6 +1012,11 @@ async function main(): Promise<void> {
 
   if (args[0] === "update") {
     console.log($.dim("  Updating saj..."));
+    // Fetch latest commit hash to bypass CDN cache
+    const res = await fetch("https://api.github.com/repos/rahulyal/saj/commits/main");
+    const commit = await res.json();
+    const sha = commit.sha?.slice(0, 7) || "main";
+
     const cmd = new Deno.Command("deno", {
       args: [
         "install",
@@ -1021,7 +1026,7 @@ async function main(): Promise<void> {
         "--name", "saj",
         "--force",
         "--reload",
-        "https://cdn.jsdelivr.net/gh/rahulyal/saj@main/saj.ts"
+        `https://cdn.jsdelivr.net/gh/rahulyal/saj@${sha}/saj.ts`
       ],
       stdout: "inherit",
       stderr: "inherit",
