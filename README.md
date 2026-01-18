@@ -14,19 +14,19 @@ SAJ is a minimal, Turing-complete language expressed as JSON. The agent outputs 
 ## Install
 
 ```bash
-# Install Deno
-curl -fsSL https://deno.land/install.sh | sh
-
-# Clone & setup
-git clone <repo>
-cd saj
-echo "ANTHROPIC_API_KEY=your-key" > .env
+curl -fsSL https://saj.recovery.deno.net/install.sh | bash
 ```
 
-## Run
+Then authenticate:
 
 ```bash
-deno task saj
+saj login
+```
+
+That's it. Start chatting:
+
+```bash
+saj
 ```
 
 ## Usage
@@ -133,6 +133,17 @@ saj.ts      CLI + agent loop + memory effects
 eval.ts     SAJ evaluator (async, handles effects)
 effects.ts  Effect handlers (fetch, shell, llm_call, etc.)
 types.ts    Type definitions
+```
+
+## Commands
+
+```bash
+saj              # Start chatting
+saj login        # Authenticate via GitHub
+saj logout       # Clear credentials
+saj whoami       # Show current user
+saj usage        # Show token usage & budget
+saj update       # Update to latest version
 ```
 
 ## The Vision
