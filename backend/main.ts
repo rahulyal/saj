@@ -322,6 +322,80 @@ fi
   return c.text(script, 200, { "Content-Type": "text/plain" });
 });
 
+// PowerShell install script for Windows
+app.get("/install.ps1", (c: Context) => {
+  const script = `# SAJ Installer for Windows
+$ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "      ██╗" -ForegroundColor Magenta
+Write-Host "     ██╔╝    " -ForegroundColor Magenta -NoNewline
+Write-Host "saj" -ForegroundColor White -NoNewline
+Write-Host " self-programming agent" -ForegroundColor DarkGray
+Write-Host "    ██╔╝" -ForegroundColor Magenta
+Write-Host "   ██╔╝" -ForegroundColor Magenta
+Write-Host "  ███╔╝" -ForegroundColor Magenta
+Write-Host " ██╔██╗" -ForegroundColor Magenta
+Write-Host "██╔╝ ██╗" -ForegroundColor Magenta
+Write-Host "╚═╝  ╚═╝" -ForegroundColor Magenta
+Write-Host ""
+
+# Check for Deno
+if (-not (Get-Command deno -ErrorAction SilentlyContinue)) {
+    Write-Host "Deno not found. Installing..." -ForegroundColor Yellow
+    irm https://deno.land/install.ps1 | iex
+
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+    Write-Host "✓ Deno installed" -ForegroundColor Green
+}
+
+Write-Host "Installing saj..." -ForegroundColor DarkGray
+
+# Get latest commit hash to bypass CDN cache
+$response = Invoke-RestMethod -Uri "https://api.github.com/repos/rahulyal/saj/commits/main"
+$sha = $response.sha.Substring(0, 7)
+
+# Install saj globally
+deno install \`
+    --global \`
+    --allow-all \`
+    --unstable-kv \`
+    --name saj \`
+    --force \`
+    --reload \`
+    "https://cdn.jsdelivr.net/gh/rahulyal/saj@$sha/saj.ts"
+
+Write-Host "✓ saj installed" -ForegroundColor Green
+
+# Create config directory
+$configDir = Join-Path $env:USERPROFILE ".saj"
+if (-not (Test-Path $configDir)) {
+    New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+}
+
+# Check if saj is in PATH
+if (Get-Command saj -ErrorAction SilentlyContinue) {
+    Write-Host "✓ Ready to use" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Get started:" -ForegroundColor White
+    Write-Host "    saj login" -ForegroundColor DarkGray -NoNewline
+    Write-Host "      # Authenticate with GitHub"
+    Write-Host "    saj" -ForegroundColor DarkGray -NoNewline
+    Write-Host "            # Start chatting"
+    Write-Host ""
+} else {
+    Write-Host "Add Deno to your PATH:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host '  $env:Path += ";$env:USERPROFILE\\.deno\\bin"' -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "Then run: saj login"
+}
+`;
+  return c.text(script, 200, { "Content-Type": "text/plain" });
+});
+
 // =============================================================================
 // GitHub OAuth
 // =============================================================================

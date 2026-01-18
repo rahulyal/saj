@@ -38,7 +38,8 @@ const CONTEXT_CRITICAL_THRESHOLD = 0.9; // critical at 90%
 // Backend config
 const SAJ_API_URL =
   Deno.env.get("SAJ_API_URL") || "https://saj.recovery.deno.net";
-const CONFIG_DIR = `${Deno.env.get("HOME")}/.saj`;
+const HOME_DIR = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
+const CONFIG_DIR = `${HOME_DIR}/.saj`;
 const CONFIG_FILE = `${CONFIG_DIR}/config.json`;
 
 // =============================================================================
