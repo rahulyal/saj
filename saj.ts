@@ -260,7 +260,6 @@ async function searchPrograms(query: string): Promise<StoredProgram[]> {
 
   const iter = kv.list<StoredProgram>({ prefix: ["programs"] });
   for await (const entry of iter) {
-    if (entry.key[0] === "programs_by_name") continue;
     const prog = entry.value;
     if (
       prog.name.toLowerCase().includes(queryLower) ||
@@ -278,7 +277,6 @@ async function listPrograms(): Promise<StoredProgram[]> {
   const programs: StoredProgram[] = [];
   const iter = kv.list<StoredProgram>({ prefix: ["programs"] });
   for await (const entry of iter) {
-    if (entry.key[0] === "programs_by_name") continue;
     programs.push(entry.value);
   }
   return programs.sort((a, b) => b.useCount - a.useCount);
@@ -324,19 +322,7 @@ async function loadSession(): Promise<Session> {
 }
 
 async function updateSession(session: Session): Promise<void> {
-  // Truncate summary if too large (KV has 64KB limit)
-  if (session.summary && session.summary.length > 10000) {
-    session.summary = session.summary.slice(0, 10000) + "...";
-  }
-  try {
-    await kv.set(["session", "current"], session);
-  } catch (e) {
-    // If still too large, clear summary and try again
-    if (e instanceof Error && e.message.includes("too large")) {
-      session.summary = undefined;
-      await kv.set(["session", "current"], session);
-    }
-  }
+  await kv.set(["session", "current"], session);
 }
 
 async function resetSession(summary?: string): Promise<Session> {
@@ -637,8 +623,8 @@ async function run(
     try {
       const summaryResponse = await client.messages.create({
         model: MODEL,
-        max_tokens: 500,
-        system: "You are a summarizer. Summarize the conversation context concisely for continuity. Focus on: what was accomplished, key decisions, and current task state. Be brief.",
+        max_tokens: 5000,
+        system: "You are a summarizer. Summarize the conversation context for continuity. Include: what was accomplished, key decisions, current task state, and important context needed to continue.",
         tools: [],
         messages: [{ role: "user", content: `Summarize this conversation:\n\n${recentMessages}` }],
       });
