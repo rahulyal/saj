@@ -33,6 +33,7 @@ const firstArg = Deno.args[0]?.toLowerCase();
 const MODEL_FROM_ARG = firstArg === "sonnet" || firstArg === "opus" ? firstArg : null;
 const MODEL_KEY = MODEL_FROM_ARG || Deno.env.get("SAJ_MODEL")?.toLowerCase() || "sonnet";
 const MODEL = MODEL_MAP[MODEL_KEY] || MODEL_MAP.sonnet;
+const MAX_ITERATIONS = MODEL_KEY === "opus" ? 50 : 20; // Opus is smarter, needs more room
 const MAX_TOKENS = 8192;
 const CONTEXT_WINDOW = 200000;
 const CONTEXT_WARNING_THRESHOLD = 0.75; // warn at 75%
@@ -421,12 +422,28 @@ You don't call predefined tools. You WRITE programs in SAJ (Scheme As JSON) and 
 ## Your Workflow
 1. When asked to do something, WRITE a SAJ program
 2. Execute it with the saj tool
-3. If it's reusable, STORE it with store_program effect
-4. Next time, SEARCH your programs before writing from scratch
+3. If it FAILS: analyze the error, FIX the program, and RETRY immediately
+4. If it SUCCEEDS: consider storing it for reuse
+5. Next time, SEARCH your programs before writing from scratch
+
+## Self-Improvement Loop (CRITICAL)
+When a program fails:
+1. READ the error message carefully
+2. IDENTIFY what went wrong (syntax? logic? wrong effect args?)
+3. REWRITE the program with the fix
+4. EXECUTE again immediately
+5. REPEAT until it works - don't give up after one failure!
+
+For complex tasks, TEST your program with simple inputs first:
+- Write the function
+- Test it with known values
+- If wrong, fix and retest
+- Only store once it's verified working
 
 ## Key Insight
 You're not a chatbot. You're a computation engine that programs itself.
 Every action = a program. Programs persist. You get better over time.
+FAILURES ARE EXPECTED - the loop is: write → fail → fix → succeed.
 
 ## Environment Persists!
 Procedures you define stay in the environment across interactions.
@@ -540,14 +557,35 @@ async function run(
   env: Environment,
   messages: Anthropic.MessageParam[],
 ): Promise<{ env: Environment; messages: Anthropic.MessageParam[] }> {
-  // Check context usage
+  // Check context usage - auto-summarize if over 100%
   const usage =
     (session.totalInputTokens + session.totalOutputTokens) / CONTEXT_WINDOW;
-  if (usage >= CONTEXT_CRITICAL_THRESHOLD) {
+  if (usage >= 1.0) {
+    console.log();
+    console.log($.yellow("  ⚠ Context full. Auto-summarizing and continuing..."));
+
+    // Generate summary of current session
+    const summaryPrompt = messages.slice(-10).map(m =>
+      typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+    ).join('\n').slice(0, 2000);
+
+    const summary = `Previous session context: ${summaryPrompt}...`;
+
+    // Reset session in place
+    session.id = crypto.randomUUID();
+    session.totalInputTokens = 0;
+    session.totalOutputTokens = 0;
+    session.messageCount = 0;
+    session.summary = summary;
+    await updateSession(session);
+    messages.length = 0; // Clear messages array
+
+    console.log($.green("  ✓ Session reset with summary. Continuing..."));
+  } else if (usage >= CONTEXT_CRITICAL_THRESHOLD) {
     console.log();
     console.log(
       $.yellow(
-        "  ⚠ Context nearly full. Consider: clear (reset) or continue (auto-summarize)",
+        "  ⚠ Context nearly full (90%+). Will auto-summarize at 100%.",
       ),
     );
   }
@@ -566,7 +604,6 @@ async function run(
     customHandlers: memoryEffects,
   });
   let iterations = 0;
-  const MAX_ITERATIONS = 20;
   const startTime = Date.now();
 
   while (iterations++ < MAX_ITERATIONS) {
@@ -649,7 +686,14 @@ async function run(
         resultStr = printValue(lastResult);
         success = true;
       } catch (e) {
-        resultStr = `Error: ${e instanceof Error ? e.message : String(e)}`;
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        // Provide structured error feedback to help agent fix it
+        resultStr = `ERROR: ${errorMsg}
+
+FAILED PROGRAM:
+${JSON.stringify(programs, null, 2).slice(0, 500)}
+
+FIX AND RETRY: Analyze the error, rewrite the program, and execute again.`;
       }
 
       stopSpin(formatTime(Date.now() - execStart));
@@ -1061,18 +1105,70 @@ async function handleUsage(): Promise<void> {
 }
 
 // =============================================================================
-// Auto-Publish (Silent)
+// Auto-Publish (Silent) with LLM-generated metadata
 // =============================================================================
+
+async function generateProgramMetadata(
+  programs: SajProgram[],
+  token: string,
+): Promise<{ name: string; description: string; tags: string[] }> {
+  const programJson = JSON.stringify(programs, null, 2).slice(0, 2000);
+
+  try {
+    const response = await fetch(`${SAJ_API_URL}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 200,
+        messages: [
+          {
+            role: "user",
+            content: `Generate metadata for this SAJ program. Return ONLY valid JSON with name, description, and tags.
+
+Program:
+${programJson}
+
+Return format: {"name": "short_snake_case_name", "description": "One sentence description", "tags": ["tag1", "tag2"]}`,
+          },
+        ],
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const text = data.content?.[0]?.text || "";
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        const metadata = JSON.parse(match[0]);
+        return {
+          name: metadata.name || `auto_${Date.now()}`,
+          description: metadata.description || "Auto-published program",
+          tags: [...(metadata.tags || []), "auto"],
+        };
+      }
+    }
+  } catch {
+    // Fall back to basic metadata
+  }
+
+  // Fallback
+  return {
+    name: `auto_${Date.now()}`,
+    description: `Auto-published program: ${programs.map((p) => p.type).join(", ")}`,
+    tags: ["auto", ...programs.map((p) => p.type)],
+  };
+}
 
 async function autoPublishProgram(programs: SajProgram[]): Promise<void> {
   const token = await getToken();
   if (!token) return; // Silently skip if not logged in
 
-  // Generate name and description from program structure
-  const timestamp = Date.now();
-  const programTypes = programs.map((p) => p.type).join(", ");
-  const name = `auto_${timestamp}`;
-  const description = `Auto-published program: ${programTypes}`;
+  // Generate smart metadata using LLM
+  const metadata = await generateProgramMetadata(programs, token);
 
   try {
     await fetch(`${SAJ_API_URL}/programs`, {
@@ -1082,10 +1178,10 @@ async function autoPublishProgram(programs: SajProgram[]): Promise<void> {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        name,
-        description,
+        name: metadata.name,
+        description: metadata.description,
         program: programs,
-        tags: ["auto", ...programs.map((p) => p.type)],
+        tags: metadata.tags,
       }),
     });
     // Silent - no output on success or failure

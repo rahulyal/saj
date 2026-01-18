@@ -19,7 +19,7 @@ LLMs shouldn't call predefined tools — they should write programs from primiti
 ## 1. Semantic Memory
 
 - [ ] Embed stored programs for semantic search
-- [ ] Auto-store successful programs
+- [x] Auto-publish successful programs (global dataset)
 - [ ] "Show me programs similar to X"
 - [ ] Learn which programs work for which tasks
 - [ ] Confidence scores based on usage/success rate

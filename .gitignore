@@ -1,45 +1,44 @@
+# Keep only core files
+# Everything else is ignored
+
 # Dependencies
 node_modules/
 
 # Deno
 .deno/
+deno.lock
 
-# Fresh framework build artifacts
+# Fresh framework
 _fresh/
 
-# Claude Code local settings
+# Backend (deployed separately from laptop)
+backend/
+
+# Editor/IDE
 .claude/
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
+.zed/
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# Test artifacts
-test.txt
-model_info.txt
+# Environment
+.env
+.env.*
 
-# Logs
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
 *.log
-npm-debug.log*
+*.txt
+.cache/
 
-# Build outputs
+# Build
 dist/
 build/
 out/
-
-# Temporary files
-*.tmp
-*.temp
-.cache/
