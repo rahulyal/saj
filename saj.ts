@@ -154,7 +154,8 @@ const $ = {
 // Deno KV - Program Memory
 // =============================================================================
 
-const kv = await Deno.openKv();
+const KV_PATH = `${CONFIG_DIR}/data.db`;
+const kv = await Deno.openKv(KV_PATH);
 
 interface StoredProgram {
   id: string;
