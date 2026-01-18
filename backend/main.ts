@@ -203,6 +203,9 @@ fi
 
 echo -e "\${DIM}Installing saj...\${NC}"
 
+# Get latest commit hash to bypass CDN cache
+SHA=$(curl -s https://api.github.com/repos/rahulyal/saj/commits/main | grep '"sha"' | head -1 | cut -d'"' -f4 | cut -c1-7)
+
 # Install saj globally
 deno install \\
     --global \\
@@ -211,7 +214,7 @@ deno install \\
     --name saj \\
     --force \\
     --reload \\
-    https://cdn.jsdelivr.net/gh/rahulyal/saj@main/saj.ts
+    "https://cdn.jsdelivr.net/gh/rahulyal/saj@\${SHA}/saj.ts"
 
 echo -e "\${GREEN}✓ saj installed\${NC}"
 
