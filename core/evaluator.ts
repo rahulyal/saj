@@ -255,7 +255,8 @@ export async function evaluate(
       evaluatedArgs.push(result);
     }
 
-    const localEnv = { ...closure.scopedEnvironment };
+    // Merge: outer env (for recursion) -> closure scope -> args
+    const localEnv = { ...env, ...closure.scopedEnvironment };
     closure.procedure.inputs.forEach((input, i) => {
       localEnv[input] = evaluatedArgs[i];
     });
