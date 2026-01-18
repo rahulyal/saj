@@ -85,6 +85,58 @@ async function getToken(): Promise<string | null> {
 }
 
 // =============================================================================
+// Auto-Update Check
+// =============================================================================
+
+interface UpdateInfo {
+  hasUpdate: boolean;
+  currentSha?: string;
+  latestSha?: string;
+}
+
+async function checkForUpdates(): Promise<UpdateInfo> {
+  try {
+    // Get installed version from config
+    const config = await loadConfig();
+    const currentSha = (config as Record<string, unknown>).version as string | undefined;
+
+    // Fetch latest commit
+    const res = await fetch(
+      "https://api.github.com/repos/rahulyal/saj/commits/main",
+      { headers: { "User-Agent": "saj-cli" } }
+    );
+
+    if (!res.ok) return { hasUpdate: false };
+
+    const commit = await res.json();
+    const latestSha = commit.sha?.slice(0, 7);
+
+    if (!latestSha) return { hasUpdate: false };
+
+    // If no version stored, save current and don't notify
+    if (!currentSha) {
+      (config as Record<string, unknown>).version = latestSha;
+      await saveConfig(config);
+      return { hasUpdate: false };
+    }
+
+    return {
+      hasUpdate: currentSha !== latestSha,
+      currentSha,
+      latestSha,
+    };
+  } catch {
+    return { hasUpdate: false };
+  }
+}
+
+async function saveCurrentVersion(sha: string): Promise<void> {
+  const config = await loadConfig();
+  (config as Record<string, unknown>).version = sha;
+  await saveConfig(config);
+}
+
+// =============================================================================
 // Backend API Client
 // =============================================================================
 
@@ -272,7 +324,19 @@ async function loadSession(): Promise<Session> {
 }
 
 async function updateSession(session: Session): Promise<void> {
-  await kv.set(["session", "current"], session);
+  // Truncate summary if too large (KV has 64KB limit)
+  if (session.summary && session.summary.length > 10000) {
+    session.summary = session.summary.slice(0, 10000) + "...";
+  }
+  try {
+    await kv.set(["session", "current"], session);
+  } catch (e) {
+    // If still too large, clear summary and try again
+    if (e instanceof Error && e.message.includes("too large")) {
+      session.summary = undefined;
+      await kv.set(["session", "current"], session);
+    }
+  }
 }
 
 async function resetSession(summary?: string): Promise<Session> {
@@ -562,14 +626,27 @@ async function run(
     (session.totalInputTokens + session.totalOutputTokens) / CONTEXT_WINDOW;
   if (usage >= 1.0) {
     console.log();
-    console.log($.yellow("  ⚠ Context full. Auto-summarizing and continuing..."));
+    console.log($.yellow("  ⚠ Context full. Summarizing with LLM..."));
 
-    // Generate summary of current session
-    const summaryPrompt = messages.slice(-10).map(m =>
+    // Generate summary using LLM
+    const recentMessages = messages.slice(-10).map(m =>
       typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-    ).join('\n').slice(0, 2000);
+    ).join('\n').slice(0, 4000);
 
-    const summary = `Previous session context: ${summaryPrompt}...`;
+    let summary = "";
+    try {
+      const summaryResponse = await client.messages.create({
+        model: MODEL,
+        max_tokens: 500,
+        system: "You are a summarizer. Summarize the conversation context concisely for continuity. Focus on: what was accomplished, key decisions, and current task state. Be brief.",
+        tools: [],
+        messages: [{ role: "user", content: `Summarize this conversation:\n\n${recentMessages}` }],
+      });
+      const textBlock = summaryResponse.content.find(b => b.type === "text");
+      summary = textBlock && "text" in textBlock ? textBlock.text : recentMessages.slice(0, 1000);
+    } catch {
+      summary = recentMessages.slice(0, 1000);
+    }
 
     // Reset session in place
     session.id = crypto.randomUUID();
@@ -580,7 +657,7 @@ async function run(
     await updateSession(session);
     messages.length = 0; // Clear messages array
 
-    console.log($.green("  ✓ Session reset with summary. Continuing..."));
+    console.log($.green("  ✓ Session reset with LLM summary. Continuing..."));
   } else if (usage >= CONTEXT_CRITICAL_THRESHOLD) {
     console.log();
     console.log(
@@ -770,6 +847,17 @@ function describeProgram(p: SajProgram): string {
 
 async function repl(client: ApiClient): Promise<void> {
   printLogo();
+
+  // Check for updates (non-blocking)
+  checkForUpdates().then((update) => {
+    if (update.hasUpdate) {
+      console.log();
+      console.log(
+        $.yellow(`  ⚡ Update available! Run '${$.bold("saj update")}' to get the latest version.`),
+      );
+      console.log();
+    }
+  });
 
   let session = await loadSession();
   let env = await loadEnv();
@@ -1419,6 +1507,7 @@ async function main(): Promise<void> {
     // Fetch latest commit hash to bypass CDN cache
     const res = await fetch(
       "https://api.github.com/repos/rahulyal/saj/commits/main",
+      { headers: { "User-Agent": "saj-cli" } }
     );
     const commit = await res.json();
     const sha = commit.sha?.slice(0, 7) || "main";
@@ -1440,7 +1529,9 @@ async function main(): Promise<void> {
     });
     const status = await cmd.spawn().status;
     if (status.success) {
-      console.log($.green("  ✓ Updated to latest version"));
+      // Save version so update check knows we're current
+      await saveCurrentVersion(sha);
+      console.log($.green(`  ✓ Updated to ${sha}`));
     } else {
       console.log($.red("  ✗ Update failed"));
     }
