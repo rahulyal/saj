@@ -6,6 +6,7 @@
     "saj:cloud": "SAJ_API_URL=https://saj.recovery.deno.net deno run -A --env --unstable-kv saj.ts",
     "login": "SAJ_API_URL=https://saj.recovery.deno.net deno run -A --env --unstable-kv saj.ts login",
     "check": "deno check *.ts",
+    "lint": "deno lint",
     "test": "deno test -A"
   },
   "imports": {
@@ -14,5 +15,11 @@
   "compilerOptions": {
     "strict": true,
     "noImplicitAny": true
+  },
+  "lint": {
+    "exclude": ["legacy/"],
+    "rules": {
+      "exclude": ["no-import-prefix", "no-unversioned-import"]
+    }
   }
 }

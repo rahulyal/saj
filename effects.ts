@@ -5,7 +5,7 @@
  * Inspired by MIT's RLM (Recursive Language Models) paper.
  */
 
-import Anthropic from "npm:@anthropic-ai/sdk@^0.52.0";
+import Anthropic from "@anthropic-ai/sdk";
 
 // =============================================================================
 // Effect Context
@@ -22,7 +22,7 @@ export interface EffectContext {
 
 export type EffectHandler = (
   args: Record<string, unknown>,
-  context: EffectContext
+  context: EffectContext,
 ) => Promise<unknown>;
 
 // =============================================================================
@@ -46,7 +46,7 @@ const fetchHandler: EffectHandler = async (args) => {
 
 const readFileHandler: EffectHandler = async (args) => {
   const path = args.path as string;
-  return Deno.readTextFile(path);
+  return await Deno.readTextFile(path);
 };
 
 const writeFileHandler: EffectHandler = async (args) => {
@@ -77,9 +77,9 @@ const shellHandler: EffectHandler = async (args) => {
   };
 };
 
-const printHandler: EffectHandler = async (args) => {
+const printHandler: EffectHandler = (args) => {
   // Don't console.log - just return the value (it will be displayed in results)
-  return args.value;
+  return Promise.resolve(args.value);
 };
 
 /**
@@ -112,7 +112,9 @@ const llmCallHandler: EffectHandler = async (args, context) => {
   });
 
   // Extract text from response
-  const textContent = response.content.find((block) => block.type === "text");
+  const textContent = response.content.find(
+    (block: Anthropic.ContentBlock) => block.type === "text",
+  );
   const responseText = textContent?.type === "text" ? textContent.text : "";
 
   // Parse response based on expected type
@@ -169,10 +171,9 @@ export interface EffectHandlerConfig {
 /**
  * Create an effect handler function that can be passed to the evaluator
  */
-export function createEffectHandler(config: EffectHandlerConfig = {}): (
-  name: string,
-  args: Record<string, unknown>
-) => Promise<unknown> {
+export function createEffectHandler(
+  config: EffectHandlerConfig = {},
+): (name: string, args: Record<string, unknown>) => Promise<unknown> {
   const context: EffectContext = {
     anthropicClient: config.anthropicClient,
     model: config.model,
@@ -185,7 +186,7 @@ export function createEffectHandler(config: EffectHandlerConfig = {}): (
     if (!handler) {
       throw new Error(`Unknown effect: ${name}`);
     }
-    return handler(args, context);
+    return await handler(args, context);
   };
 }
 

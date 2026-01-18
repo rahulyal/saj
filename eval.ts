@@ -11,7 +11,6 @@ import type {
   Environment,
   EvalResult,
   ProcedureClosure,
-  Effect,
 } from "./types.ts";
 
 // =============================================================================
@@ -245,7 +244,7 @@ export async function execute(
   initialEnv: Environment = {},
   effectHandler?: EffectHandlerFn
 ): Promise<{ result: unknown; env: Environment }> {
-  return evaluate(program, initialEnv, effectHandler);
+  return await evaluate(program, initialEnv, effectHandler);
 }
 
 /**

@@ -5,9 +5,9 @@
  * Users authenticate via GitHub, then use SAJ CLI with your API key.
  */
 
-import { Hono } from "jsr:@hono/hono";
-import { cors } from "jsr:@hono/hono/cors";
-import { jwt, sign, verify } from "jsr:@hono/hono/jwt";
+import { Hono, type Context } from "@hono/hono";
+import { cors } from "@hono/hono/cors";
+import { sign, verify } from "@hono/hono/jwt";
 
 // =============================================================================
 // Config
@@ -17,16 +17,17 @@ const GITHUB_CLIENT_ID = Deno.env.get("GITHUB_CLIENT_ID")!;
 const GITHUB_CLIENT_SECRET = Deno.env.get("GITHUB_CLIENT_SECRET")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const JWT_SECRET = Deno.env.get("JWT_SECRET") || "change-me-in-production";
-const FRONTEND_URL = Deno.env.get("FRONTEND_URL") || "http://localhost:3000";
 
 // Rate limiting: requests per hour per user
 const RATE_LIMIT = parseInt(Deno.env.get("RATE_LIMIT") || "100");
 
 // Billing: monthly free tier in dollars (configurable via env)
-const MONTHLY_FREE_LIMIT = parseFloat(Deno.env.get("MONTHLY_FREE_LIMIT") || "10");
+const MONTHLY_FREE_LIMIT = parseFloat(
+  Deno.env.get("MONTHLY_FREE_LIMIT") || "10",
+);
 
 // Claude Sonnet pricing (per token)
-const INPUT_PRICE_PER_TOKEN = 3 / 1_000_000;   // $3 per 1M input tokens
+const INPUT_PRICE_PER_TOKEN = 3 / 1_000_000; // $3 per 1M input tokens
 const OUTPUT_PRICE_PER_TOKEN = 15 / 1_000_000; // $15 per 1M output tokens
 
 // =============================================================================
@@ -65,7 +66,10 @@ async function createOrUpdateUser(githubUser: {
   email: string | null;
   avatar_url: string;
 }): Promise<User> {
-  const existingByGithub = await kv.get<string>(["github_to_user", githubUser.id]);
+  const existingByGithub = await kv.get<string>([
+    "github_to_user",
+    githubUser.id,
+  ]);
 
   let user: User;
   const now = new Date().toISOString();
@@ -113,7 +117,9 @@ async function createOrUpdateUser(githubUser: {
   return user;
 }
 
-async function checkRateLimit(userId: string): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+async function checkRateLimit(
+  userId: string,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
   const now = Date.now();
   const hourFromNow = now + 60 * 60 * 1000;
 
@@ -130,14 +136,23 @@ async function checkRateLimit(userId: string): Promise<{ allowed: boolean; remai
   }
 
   // Increment
-  const newEntry = { count: result.value.count + 1, resetAt: result.value.resetAt };
+  const newEntry = {
+    count: result.value.count + 1,
+    resetAt: result.value.resetAt,
+  };
   await kv.set(["rate_limit", userId], newEntry);
 
-  return { allowed: true, remaining: RATE_LIMIT - newEntry.count, resetAt: newEntry.resetAt };
+  return {
+    allowed: true,
+    remaining: RATE_LIMIT - newEntry.count,
+    resetAt: newEntry.resetAt,
+  };
 }
 
 function calculateCost(inputTokens: number, outputTokens: number): number {
-  return (inputTokens * INPUT_PRICE_PER_TOKEN) + (outputTokens * OUTPUT_PRICE_PER_TOKEN);
+  return (
+    inputTokens * INPUT_PRICE_PER_TOKEN + outputTokens * OUTPUT_PRICE_PER_TOKEN
+  );
 }
 
 interface UsageData {
@@ -159,7 +174,14 @@ async function getMonthlyUsage(userId: string): Promise<UsageData> {
   return data;
 }
 
-async function checkBudget(userId: string): Promise<{ allowed: boolean; used: number; limit: number; remaining: number }> {
+async function checkBudget(
+  userId: string,
+): Promise<{
+  allowed: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+}> {
   const usage = await getMonthlyUsage(userId);
   const remaining = Math.max(0, MONTHLY_FREE_LIMIT - usage.cost);
   return {
@@ -170,7 +192,11 @@ async function checkBudget(userId: string): Promise<{ allowed: boolean; used: nu
   };
 }
 
-async function logUsage(userId: string, inputTokens: number, outputTokens: number): Promise<void> {
+async function logUsage(
+  userId: string,
+  inputTokens: number,
+  outputTokens: number,
+): Promise<void> {
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7); // YYYY-MM
 
@@ -194,22 +220,25 @@ async function logUsage(userId: string, inputTokens: number, outputTokens: numbe
 const app = new Hono();
 
 // CORS for CLI
-app.use("/*", cors({
-  origin: "*",
-  allowMethods: ["GET", "POST", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization"],
-}));
+app.use(
+  "/*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 // Health check
-app.get("/", (c) => c.json({ status: "ok", service: "saj-backend" }));
+app.get("/", (c: Context) => c.json({ status: "ok", service: "saj-backend" }));
 
 // CLI source - redirect to jsDelivr (better cache invalidation than GitHub raw)
-app.get("/cli.ts", (c) => {
+app.get("/cli.ts", (c: Context) => {
   return c.redirect("https://cdn.jsdelivr.net/gh/rahulyal/saj@main/saj.ts");
 });
 
 // Install script
-app.get("/install.sh", (c) => {
+app.get("/install.sh", (c: Context) => {
   const script = `#!/bin/bash
 set -e
 
@@ -289,7 +318,7 @@ fi
 // =============================================================================
 
 // Step 1: Redirect to GitHub
-app.get("/auth/github", (c) => {
+app.get("/auth/github", (c: Context) => {
   const state = crypto.randomUUID();
   const redirectUri = new URL("/auth/callback", c.req.url).toString();
 
@@ -303,7 +332,7 @@ app.get("/auth/github", (c) => {
 });
 
 // CLI login flow - redirects to local callback
-app.get("/auth/github/cli", (c) => {
+app.get("/auth/github/cli", (c: Context) => {
   const cliCallback = c.req.query("callback");
   if (!cliCallback) {
     return c.json({ error: "Missing callback parameter" }, 400);
@@ -323,7 +352,7 @@ app.get("/auth/github/cli", (c) => {
 });
 
 // CLI callback - redirects code to local CLI server
-app.get("/auth/callback/cli", async (c) => {
+app.get("/auth/callback/cli", (c: Context) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
 
@@ -339,7 +368,7 @@ app.get("/auth/callback/cli", async (c) => {
 });
 
 // Step 2: Handle callback
-app.get("/auth/callback", async (c) => {
+app.get("/auth/callback", async (c: Context) => {
   const code = c.req.query("code");
 
   if (!code) {
@@ -347,18 +376,21 @@ app.get("/auth/callback", async (c) => {
   }
 
   // Exchange code for access token
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
+  const tokenResponse = await fetch(
+    "https://github.com/login/oauth/access_token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+      }),
     },
-    body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      client_secret: GITHUB_CLIENT_SECRET,
-      code,
-    }),
-  });
+  );
 
   const tokenData = await tokenResponse.json();
 
@@ -369,7 +401,7 @@ app.get("/auth/callback", async (c) => {
   // Get user info from GitHub
   const userResponse = await fetch("https://api.github.com/user", {
     headers: {
-      "Authorization": `Bearer ${tokenData.access_token}`,
+      Authorization: `Bearer ${tokenData.access_token}`,
       "User-Agent": "SAJ-Backend",
     },
   });
@@ -386,7 +418,7 @@ app.get("/auth/callback", async (c) => {
       username: user.username,
       exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30, // 30 days
     },
-    JWT_SECRET
+    JWT_SECRET,
   );
 
   // Return HTML that the CLI can parse, or redirect
@@ -411,7 +443,7 @@ app.get("/auth/callback", async (c) => {
 });
 
 // Get token via POST (for CLI flow)
-app.post("/auth/token", async (c) => {
+app.post("/auth/token", async (c: Context) => {
   const { code } = await c.req.json();
 
   if (!code) {
@@ -419,18 +451,21 @@ app.post("/auth/token", async (c) => {
   }
 
   // Exchange code for access token
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
+  const tokenResponse = await fetch(
+    "https://github.com/login/oauth/access_token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+      }),
     },
-    body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      client_secret: GITHUB_CLIENT_SECRET,
-      code,
-    }),
-  });
+  );
 
   const tokenData = await tokenResponse.json();
 
@@ -441,7 +476,7 @@ app.post("/auth/token", async (c) => {
   // Get user info
   const userResponse = await fetch("https://api.github.com/user", {
     headers: {
-      "Authorization": `Bearer ${tokenData.access_token}`,
+      Authorization: `Bearer ${tokenData.access_token}`,
       "User-Agent": "SAJ-Backend",
     },
   });
@@ -456,7 +491,7 @@ app.post("/auth/token", async (c) => {
       username: user.username,
       exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30,
     },
-    JWT_SECRET
+    JWT_SECRET,
   );
 
   return c.json({ token, user: { id: user.id, username: user.username } });
@@ -467,7 +502,9 @@ app.post("/auth/token", async (c) => {
 // =============================================================================
 
 // Verify user from JWT
-async function getAuthUser(c: any): Promise<{ id: string; username: string } | null> {
+async function getAuthUser(
+  c: Context,
+): Promise<{ id: string; username: string } | null> {
   const auth = c.req.header("Authorization");
   if (!auth?.startsWith("Bearer ")) return null;
 
@@ -482,7 +519,7 @@ async function getAuthUser(c: any): Promise<{ id: string; username: string } | n
 }
 
 // Get current user
-app.get("/me", async (c) => {
+app.get("/me", async (c: Context) => {
   const authUser = await getAuthUser(c);
   if (!authUser) return c.json({ error: "Unauthorized" }, 401);
 
@@ -501,7 +538,7 @@ app.get("/me", async (c) => {
 // Anthropic Proxy
 // =============================================================================
 
-app.post("/v1/messages", async (c) => {
+app.post("/v1/messages", async (c: Context) => {
   const authUser = await getAuthUser(c);
   if (!authUser) {
     return c.json({ error: "Unauthorized. Run 'saj login' first." }, 401);
@@ -510,21 +547,28 @@ app.post("/v1/messages", async (c) => {
   // Check rate limit
   const rateLimit = await checkRateLimit(authUser.id);
   if (!rateLimit.allowed) {
-    return c.json({
-      error: "Rate limit exceeded",
-      resetAt: new Date(rateLimit.resetAt).toISOString(),
-    }, 429);
+    return c.json(
+      {
+        error: "Rate limit exceeded",
+        resetAt: new Date(rateLimit.resetAt).toISOString(),
+      },
+      429,
+    );
   }
 
   // Check monthly budget
   const budget = await checkBudget(authUser.id);
   if (!budget.allowed) {
-    return c.json({
-      error: "Monthly budget exceeded",
-      used: `$${budget.used.toFixed(2)}`,
-      limit: `$${budget.limit.toFixed(2)}`,
-      message: "You've used your $10 free tier this month. Contact @rahulyal for extended access.",
-    }, 402); // 402 Payment Required
+    return c.json(
+      {
+        error: "Monthly budget exceeded",
+        used: `$${budget.used.toFixed(2)}`,
+        limit: `$${budget.limit.toFixed(2)}`,
+        message:
+          "You've used your $10 free tier this month. Contact @rahulyal for extended access.",
+      },
+      402,
+    ); // 402 Payment Required
   }
 
   // Get request body
@@ -548,12 +592,12 @@ app.post("/v1/messages", async (c) => {
     await logUsage(
       authUser.id,
       responseData.usage.input_tokens || 0,
-      responseData.usage.output_tokens || 0
+      responseData.usage.output_tokens || 0,
     );
   }
 
   // Return with rate limit headers
-  return c.json(responseData, response.status, {
+  return c.json(responseData, response.status as 200, {
     "X-RateLimit-Remaining": rateLimit.remaining.toString(),
     "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString(),
   });
@@ -563,7 +607,7 @@ app.post("/v1/messages", async (c) => {
 // Usage Stats
 // =============================================================================
 
-app.get("/usage", async (c) => {
+app.get("/usage", async (c: Context) => {
   const authUser = await getAuthUser(c);
   if (!authUser) return c.json({ error: "Unauthorized" }, 401);
 
@@ -586,8 +630,12 @@ app.get("/usage", async (c) => {
     },
     rateLimit: {
       limit: RATE_LIMIT,
-      remaining: rateLimit.value ? Math.max(0, RATE_LIMIT - rateLimit.value.count) : RATE_LIMIT,
-      resetsAt: rateLimit.value?.resetAt ? new Date(rateLimit.value.resetAt).toISOString() : null,
+      remaining: rateLimit.value
+        ? Math.max(0, RATE_LIMIT - rateLimit.value.count)
+        : RATE_LIMIT,
+      resetsAt: rateLimit.value?.resetAt
+        ? new Date(rateLimit.value.resetAt).toISOString()
+        : null,
     },
   });
 });

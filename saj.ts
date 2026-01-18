@@ -7,10 +7,17 @@
  * Programs execute, persist, and compose.
  */
 
-import Anthropic from "npm:@anthropic-ai/sdk@^0.52.0";
+import Anthropic from "@anthropic-ai/sdk";
 import { executeSequence, printValue } from "./eval.ts";
 import { createEffectHandler, type EffectHandler } from "./effects.ts";
-import type { SajProgram, Environment } from "./types.ts";
+import type {
+  SajProgram,
+  Environment,
+  Definition,
+  Effect,
+  ProcedureCall,
+  ArithmeticOperation,
+} from "./types.ts";
 
 // =============================================================================
 // Config
@@ -23,7 +30,8 @@ const CONTEXT_WARNING_THRESHOLD = 0.75; // warn at 75%
 const CONTEXT_CRITICAL_THRESHOLD = 0.9; // critical at 90%
 
 // Backend config
-const SAJ_API_URL = Deno.env.get("SAJ_API_URL") || "https://saj.recovery.deno.net";
+const SAJ_API_URL =
+  Deno.env.get("SAJ_API_URL") || "https://saj.recovery.deno.net";
 const CONFIG_DIR = `${Deno.env.get("HOME")}/.saj`;
 const CONFIG_FILE = `${CONFIG_DIR}/config.json`;
 
@@ -49,7 +57,9 @@ async function loadConfig(): Promise<SajConfig> {
 async function saveConfig(config: SajConfig): Promise<void> {
   try {
     await Deno.mkdir(CONFIG_DIR, { recursive: true });
-  } catch { /* exists */ }
+  } catch {
+    /* exists */
+  }
   await Deno.writeTextFile(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
@@ -87,7 +97,7 @@ class SajApiClient {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.token}`,
+        Authorization: `Bearer ${this.token}`,
       },
       body: JSON.stringify(params),
     });
@@ -159,7 +169,12 @@ interface Session {
   summary?: string;
 }
 
-async function storeProgram(name: string, description: string, program: SajProgram[], tags: string[] = []): Promise<StoredProgram> {
+async function storeProgram(
+  name: string,
+  description: string,
+  program: SajProgram[],
+  tags: string[] = [],
+): Promise<StoredProgram> {
   const id = crypto.randomUUID();
   const stored: StoredProgram = {
     id,
@@ -186,7 +201,7 @@ async function searchPrograms(query: string): Promise<StoredProgram[]> {
     if (
       prog.name.toLowerCase().includes(queryLower) ||
       prog.description.toLowerCase().includes(queryLower) ||
-      prog.tags.some(t => t.toLowerCase().includes(queryLower))
+      prog.tags.some((t: string) => t.toLowerCase().includes(queryLower))
     ) {
       results.push(prog);
     }
@@ -274,12 +289,14 @@ async function saveEnv(env: Environment): Promise<void> {
 // Memory Effects - Agent can store/search its own programs
 // =============================================================================
 
-function createMemoryEffects(getEnv: () => Environment): Record<string, EffectHandler> {
+function createMemoryEffects(
+  getEnv: () => Environment,
+): Record<string, EffectHandler> {
   return {
-    get_env: async (_args, _ctx) => {
+    get_env: (_args, _ctx) => {
       const env = getEnv();
       const keys = Object.keys(env);
-      return keys.length > 0 ? keys : "empty";
+      return Promise.resolve(keys.length > 0 ? keys : "empty");
     },
 
     store_program: async (args, _ctx) => {
@@ -295,7 +312,7 @@ function createMemoryEffects(getEnv: () => Environment): Record<string, EffectHa
     search_programs: async (args, _ctx) => {
       const query = args.query as string;
       const results = await searchPrograms(query);
-      return results.map(p => ({
+      return results.map((p) => ({
         name: p.name,
         description: p.description,
         tags: p.tags,
@@ -305,7 +322,7 @@ function createMemoryEffects(getEnv: () => Environment): Record<string, EffectHa
 
     list_programs: async (_args, _ctx) => {
       const programs = await listPrograms();
-      return programs.map(p => ({
+      return programs.map((p) => ({
         name: p.name,
         description: p.description,
         tags: p.tags,
@@ -426,7 +443,9 @@ function printLogo(): void {
   console.log($.magenta("     ██╔╝    ") + $.bold("saj"));
   console.log($.magenta("    ██╔╝     ") + $.dim("self-programming agent"));
   console.log($.magenta("   ██╔╝"));
-  console.log($.magenta("  ███╔╝      ") + $.dim("exit · clear · programs · session"));
+  console.log(
+    $.magenta("  ███╔╝      ") + $.dim("exit · clear · programs · session"),
+  );
   console.log($.magenta(" ██╔██╗"));
   console.log($.magenta("██╔╝ ██╗"));
   console.log($.magenta("╚═╝  ╚═╝"));
@@ -444,8 +463,16 @@ function printSession(session: Session): void {
 
   console.log();
   console.log($.dim("─".repeat(50)));
-  console.log(color(`  context: ${usagePercent}% (${formatTokens(totalTokens)}/${formatTokens(CONTEXT_WINDOW)})`));
-  console.log($.dim(`  messages: ${session.messageCount} · session: ${session.id.slice(0, 8)}`));
+  console.log(
+    color(
+      `  context: ${usagePercent}% (${formatTokens(totalTokens)}/${formatTokens(CONTEXT_WINDOW)})`,
+    ),
+  );
+  console.log(
+    $.dim(
+      `  messages: ${session.messageCount} · session: ${session.id.slice(0, 8)}`,
+    ),
+  );
 }
 
 function formatTokens(n: number): string {
@@ -473,7 +500,9 @@ function spin(text: string): void {
 
   const render = () => {
     const f = frames[frameIdx++ % frames.length];
-    Deno.stdout.writeSync(new TextEncoder().encode(`\r${$.cyan(f)} ${$.dim(spinnerText)}   `));
+    Deno.stdout.writeSync(
+      new TextEncoder().encode(`\r${$.cyan(f)} ${$.dim(spinnerText)}   `),
+    );
   };
   render();
   spinnerInterval = setInterval(render, 80);
@@ -497,14 +526,18 @@ async function run(
   prompt: string,
   session: Session,
   env: Environment,
-  messages: Anthropic.MessageParam[]
+  messages: Anthropic.MessageParam[],
 ): Promise<{ env: Environment; messages: Anthropic.MessageParam[] }> {
-
   // Check context usage
-  const usage = (session.totalInputTokens + session.totalOutputTokens) / CONTEXT_WINDOW;
+  const usage =
+    (session.totalInputTokens + session.totalOutputTokens) / CONTEXT_WINDOW;
   if (usage >= CONTEXT_CRITICAL_THRESHOLD) {
     console.log();
-    console.log($.yellow("  ⚠ Context nearly full. Consider: clear (reset) or continue (auto-summarize)"));
+    console.log(
+      $.yellow(
+        "  ⚠ Context nearly full. Consider: clear (reset) or continue (auto-summarize)",
+      ),
+    );
   }
 
   // Add user message
@@ -530,7 +563,9 @@ async function run(
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: session.summary ? `${SYSTEM}\n\nPrevious context summary: ${session.summary}` : SYSTEM,
+      system: session.summary
+        ? `${SYSTEM}\n\nPrevious context summary: ${session.summary}`
+        : SYSTEM,
       tools: [SAJ_TOOL],
       messages,
     });
@@ -572,7 +607,9 @@ async function run(
       const programs = input.programs;
 
       console.log();
-      console.log(`  ${$.cyan("saj")} ${$.dim(`${programs.length} program${programs.length > 1 ? "s" : ""}`)}`);
+      console.log(
+        `  ${$.cyan("saj")} ${$.dim(`${programs.length} program${programs.length > 1 ? "s" : ""}`)}`,
+      );
 
       // Show what's being executed
       for (let i = 0; i < Math.min(programs.length, 3); i++) {
@@ -589,7 +626,11 @@ async function run(
 
       let resultStr: string;
       try {
-        const { results, env: newEnv } = await executeSequence(programs, currentEnv, effectHandler);
+        const { results, env: newEnv } = await executeSequence(
+          programs,
+          currentEnv,
+          effectHandler,
+        );
         currentEnv = newEnv;
         const lastResult = results[results.length - 1];
         resultStr = printValue(lastResult);
@@ -600,7 +641,8 @@ async function run(
       stopSpin(formatTime(Date.now() - execStart));
 
       // Show result
-      const display = resultStr.length > 100 ? resultStr.slice(0, 97) + "..." : resultStr;
+      const display =
+        resultStr.length > 100 ? resultStr.slice(0, 97) + "..." : resultStr;
       console.log(`  ${$.green("→")} ${display}`);
 
       toolResults.push({
@@ -618,7 +660,11 @@ async function run(
   // Warn if iteration limit hit
   if (iterations >= MAX_ITERATIONS) {
     console.log();
-    console.log($.yellow(`  ⚠ Stopped: hit ${MAX_ITERATIONS} iteration limit (possible infinite loop)`));
+    console.log(
+      $.yellow(
+        `  ⚠ Stopped: hit ${MAX_ITERATIONS} iteration limit (possible infinite loop)`,
+      ),
+    );
   }
 
   // Save environment
@@ -627,7 +673,11 @@ async function run(
   // Print session info
   console.log();
   console.log($.dim("─".repeat(50)));
-  console.log($.dim(`  ${formatTime(Date.now() - startTime)} · ${session.totalInputTokens}↑ ${session.totalOutputTokens}↓`));
+  console.log(
+    $.dim(
+      `  ${formatTime(Date.now() - startTime)} · ${session.totalInputTokens}↑ ${session.totalOutputTokens}↓`,
+    ),
+  );
 
   return { env: currentEnv, messages };
 }
@@ -635,14 +685,15 @@ async function run(
 function describeProgram(p: SajProgram): string {
   switch (p.type) {
     case "definition":
-      return `define ${(p as any).key?.key || "?"}`;
+      return `define ${(p as Definition).key?.key || "?"}`;
     case "effect":
-      return `effect:${(p as any).name}`;
-    case "procedureCall":
-      const proc = (p as any).procedure;
-      return `call ${proc?.key || "λ"}`;
+      return `effect:${(p as Effect).name}`;
+    case "procedureCall": {
+      const proc = (p as ProcedureCall).procedure;
+      return `call ${"key" in proc ? proc.key : "λ"}`;
+    }
     case "arithmeticOperation":
-      return `math:${(p as any).operation}`;
+      return `math:${(p as ArithmeticOperation).operation}`;
     case "conditional":
       return "conditional";
     default:
@@ -663,8 +714,16 @@ async function repl(client: ApiClient): Promise<void> {
 
   // Show session status on start
   if (session.messageCount > 0) {
-    const usage = ((session.totalInputTokens + session.totalOutputTokens) / CONTEXT_WINDOW * 100).toFixed(1);
-    console.log($.dim(`  resuming session (${usage}% context, ${session.messageCount} messages)`));
+    const usage = (
+      ((session.totalInputTokens + session.totalOutputTokens) /
+        CONTEXT_WINDOW) *
+      100
+    ).toFixed(1);
+    console.log(
+      $.dim(
+        `  resuming session (${usage}% context, ${session.messageCount} messages)`,
+      ),
+    );
     console.log();
   }
 
@@ -704,7 +763,9 @@ async function repl(client: ApiClient): Promise<void> {
       } else {
         console.log($.bold("  stored programs:"));
         for (const p of progs.slice(0, 10)) {
-          console.log(`  ${$.cyan(p.name)} ${$.dim(`(${p.useCount} uses)`)} - ${p.description}`);
+          console.log(
+            `  ${$.cyan(p.name)} ${$.dim(`(${p.useCount} uses)`)} - ${p.description}`,
+          );
         }
         if (progs.length > 10) {
           console.log($.dim(`  ... +${progs.length - 10} more`));
@@ -741,7 +802,9 @@ async function repl(client: ApiClient): Promise<void> {
       messages = result.messages;
     } catch (e) {
       console.log();
-      console.log($.red(`  error: ${e instanceof Error ? e.message : String(e)}`));
+      console.log(
+        $.red(`  error: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
 
     console.log();
@@ -779,7 +842,7 @@ async function handleLogin(tokenArg?: string): Promise<void> {
     // Verify token
     try {
       const response = await fetch(`${SAJ_API_URL}/me`, {
-        headers: { "Authorization": `Bearer ${tokenArg}` },
+        headers: { Authorization: `Bearer ${tokenArg}` },
       });
       if (response.ok) {
         const user = await response.json();
@@ -828,7 +891,7 @@ async function handleLogin(tokenArg?: string): Promise<void> {
                       <p style="color:#888">You can close this window.</p>
                     </div>
                   </body></html>`,
-                  { headers: { "Content-Type": "text/html" } }
+                  { headers: { "Content-Type": "text/html" } },
                 );
               }
             } catch (e) {
@@ -851,8 +914,12 @@ async function handleLogin(tokenArg?: string): Promise<void> {
     console.log($.dim("  Opening browser for GitHub login..."));
 
     // Open browser
-    const cmd = Deno.build.os === "darwin" ? "open" :
-                Deno.build.os === "windows" ? "start" : "xdg-open";
+    const cmd =
+      Deno.build.os === "darwin"
+        ? "open"
+        : Deno.build.os === "windows"
+          ? "start"
+          : "xdg-open";
 
     try {
       const command = new Deno.Command(cmd, { args: [loginUrl] });
@@ -875,7 +942,7 @@ async function handleLogin(tokenArg?: string): Promise<void> {
 
       // Verify and get username
       const response = await fetch(`${SAJ_API_URL}/me`, {
-        headers: { "Authorization": `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (response.ok) {
@@ -888,10 +955,12 @@ async function handleLogin(tokenArg?: string): Promise<void> {
         console.log($.green("  ✓ Token saved"));
       }
     } catch (e) {
-      console.log($.red(`  Login failed: ${e instanceof Error ? e.message : String(e)}`));
+      console.log(
+        $.red(`  Login failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
     } finally {
       if (server) {
-        await server.shutdown();
+        await (server as Deno.HttpServer).shutdown();
       }
     }
   }
@@ -915,7 +984,7 @@ async function handleWhoami(): Promise<void> {
 
   try {
     const response = await fetch(`${SAJ_API_URL}/me`, {
-      headers: { "Authorization": `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     if (response.ok) {
@@ -927,7 +996,9 @@ async function handleWhoami(): Promise<void> {
       console.log($.dim("  Run 'saj login' to re-authenticate"));
     }
   } catch (e) {
-    console.log($.red(`  Error: ${e instanceof Error ? e.message : String(e)}`));
+    console.log(
+      $.red(`  Error: ${e instanceof Error ? e.message : String(e)}`),
+    );
   }
 }
 
@@ -940,7 +1011,7 @@ async function handleUsage(): Promise<void> {
 
   try {
     const response = await fetch(`${SAJ_API_URL}/usage`, {
-      headers: { "Authorization": `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     if (response.ok) {
@@ -948,17 +1019,25 @@ async function handleUsage(): Promise<void> {
       console.log();
       console.log($.bold("  Usage this month:"));
       console.log(`  ${$.cyan("requests:")} ${usage.requests}`);
-      console.log(`  ${$.cyan("tokens:")} ${formatTokens(usage.tokens.input)}↑ ${formatTokens(usage.tokens.output)}↓`);
+      console.log(
+        `  ${$.cyan("tokens:")} ${formatTokens(usage.tokens.input)}↑ ${formatTokens(usage.tokens.output)}↓`,
+      );
       if (usage.budget) {
         const budgetColor = usage.budget.percentUsed > 80 ? $.yellow : $.green;
-        console.log(`  ${$.cyan("budget:")} $${usage.budget.used.toFixed(2)} / $${usage.budget.limit} (${budgetColor(usage.budget.percentUsed + "%")})`);
+        console.log(
+          `  ${$.cyan("budget:")} $${usage.budget.used.toFixed(2)} / $${usage.budget.limit} (${budgetColor(usage.budget.percentUsed + "%")})`,
+        );
       }
-      console.log(`  ${$.cyan("rate limit:")} ${usage.rateLimit.remaining}/${usage.rateLimit.limit} remaining`);
+      console.log(
+        `  ${$.cyan("rate limit:")} ${usage.rateLimit.remaining}/${usage.rateLimit.limit} remaining`,
+      );
     } else {
       console.log($.red("  Could not fetch usage"));
     }
   } catch (e) {
-    console.log($.red(`  Error: ${e instanceof Error ? e.message : String(e)}`));
+    console.log(
+      $.red(`  Error: ${e instanceof Error ? e.message : String(e)}`),
+    );
   }
 }
 
@@ -1017,7 +1096,9 @@ async function main(): Promise<void> {
   if (args[0] === "update") {
     console.log($.dim("  Updating saj..."));
     // Fetch latest commit hash to bypass CDN cache
-    const res = await fetch("https://api.github.com/repos/rahulyal/saj/commits/main");
+    const res = await fetch(
+      "https://api.github.com/repos/rahulyal/saj/commits/main",
+    );
     const commit = await res.json();
     const sha = commit.sha?.slice(0, 7) || "main";
 
@@ -1027,10 +1108,11 @@ async function main(): Promise<void> {
         "--global",
         "--allow-all",
         "--unstable-kv",
-        "--name", "saj",
+        "--name",
+        "saj",
         "--force",
         "--reload",
-        `https://cdn.jsdelivr.net/gh/rahulyal/saj@${sha}/saj.ts`
+        `https://cdn.jsdelivr.net/gh/rahulyal/saj@${sha}/saj.ts`,
       ],
       stdout: "inherit",
       stderr: "inherit",

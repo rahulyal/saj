@@ -146,6 +146,35 @@ saj usage        # Show token usage & budget
 saj update       # Update to latest version
 ```
 
+## What's Possible
+
+**Self-improving agent**
+```
+"write a program to summarize URLs, test it on 3 sites, improve it based on what failed"
+```
+It writes → runs → sees errors → rewrites.
+
+**Agent spawns agents** (via llm_call effect)
+```
+"research quantum computing - spawn 3 sub-agents to explore different aspects, then synthesize"
+```
+
+**Builds its own toolkit**
+```
+"I'll be asking you to do a lot of git operations. Build yourself a library of git helpers"
+```
+Next session: just uses them.
+
+**Meta-programming**
+```
+"write a program that generates SAJ programs from natural language descriptions"
+```
+
+**Personal automation**
+```
+"every morning I want to check HN, my github notifications, and weather. build that as a single program"
+```
+
 ## The Vision
 
 Claude Code: LLM calls predefined tools
