@@ -26,9 +26,12 @@ const MONTHLY_FREE_LIMIT = parseFloat(
   Deno.env.get("MONTHLY_FREE_LIMIT") || "10",
 );
 
-// Claude Sonnet pricing (per token)
-const INPUT_PRICE_PER_TOKEN = 3 / 1_000_000; // $3 per 1M input tokens
-const OUTPUT_PRICE_PER_TOKEN = 15 / 1_000_000; // $15 per 1M output tokens
+// Model pricing (per token)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "claude-sonnet-4-20250514": { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  "claude-opus-4-20250514": { input: 15 / 1_000_000, output: 75 / 1_000_000 },
+};
+const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 // =============================================================================
 // KV Store
@@ -149,10 +152,13 @@ async function checkRateLimit(
   };
 }
 
-function calculateCost(inputTokens: number, outputTokens: number): number {
-  return (
-    inputTokens * INPUT_PRICE_PER_TOKEN + outputTokens * OUTPUT_PRICE_PER_TOKEN
-  );
+function calculateCost(
+  inputTokens: number,
+  outputTokens: number,
+  model: string = DEFAULT_MODEL,
+): number {
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING[DEFAULT_MODEL];
+  return inputTokens * pricing.input + outputTokens * pricing.output;
 }
 
 interface UsageData {
@@ -196,6 +202,7 @@ async function logUsage(
   userId: string,
   inputTokens: number,
   outputTokens: number,
+  model: string = DEFAULT_MODEL,
 ): Promise<void> {
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7); // YYYY-MM
@@ -203,7 +210,7 @@ async function logUsage(
   const result = await kv.get<UsageData>(["usage", userId, monthKey]);
   const usage = result.value || { input: 0, output: 0, requests: 0, cost: 0 };
 
-  const callCost = calculateCost(inputTokens, outputTokens);
+  const callCost = calculateCost(inputTokens, outputTokens, model);
 
   await kv.set(["usage", userId, monthKey], {
     input: usage.input + inputTokens,
@@ -571,8 +578,9 @@ app.post("/v1/messages", async (c: Context) => {
     ); // 402 Payment Required
   }
 
-  // Get request body
-  const body = await c.req.text();
+  // Get request body and extract model for cost calculation
+  const body = await c.req.json();
+  const model = body.model || DEFAULT_MODEL;
 
   // Proxy to Anthropic
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -582,7 +590,7 @@ app.post("/v1/messages", async (c: Context) => {
       "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
     },
-    body,
+    body: JSON.stringify(body),
   });
 
   // Parse response to log usage
@@ -593,6 +601,7 @@ app.post("/v1/messages", async (c: Context) => {
       authUser.id,
       responseData.usage.input_tokens || 0,
       responseData.usage.output_tokens || 0,
+      model,
     );
   }
 

@@ -23,7 +23,13 @@ import type {
 // Config
 // =============================================================================
 
-const MODEL = "claude-sonnet-4-20250514";
+// Model selection: SAJ_MODEL=opus for Opus, defaults to Sonnet
+const MODEL_MAP: Record<string, string> = {
+  sonnet: "claude-sonnet-4-20250514",
+  opus: "claude-opus-4-20250514",
+};
+const MODEL_KEY = Deno.env.get("SAJ_MODEL")?.toLowerCase() || "sonnet";
+const MODEL = MODEL_MAP[MODEL_KEY] || MODEL_MAP.sonnet;
 const MAX_TOKENS = 8192;
 const CONTEXT_WINDOW = 200000;
 const CONTEXT_WARNING_THRESHOLD = 0.75; // warn at 75%
@@ -438,9 +444,10 @@ Be concise. Write clean programs. Build your library.`;
 // =============================================================================
 
 function printLogo(): void {
+  const modelLabel = MODEL_KEY === "opus" ? $.yellow("opus") : $.cyan("sonnet");
   console.log();
   console.log($.magenta("      ██╗"));
-  console.log($.magenta("     ██╔╝    ") + $.bold("saj"));
+  console.log($.magenta("     ██╔╝    ") + $.bold("saj") + " " + modelLabel);
   console.log($.magenta("    ██╔╝     ") + $.dim("self-programming agent"));
   console.log($.magenta("   ██╔╝"));
   console.log(

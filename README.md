@@ -148,31 +148,40 @@ saj update       # Update to latest version
 
 ## What's Possible
 
-**Self-improving agent**
+**Fetch and analyze data**
 ```
-"write a program to summarize URLs, test it on 3 sites, improve it based on what failed"
+"fetch the top 3 HN stories and tell me what's trending"
 ```
-It writes → runs → sees errors → rewrites.
+Calls HN API → fetches story details → uses llm_call to summarize.
+
+**Self-testing code** (works best with SAJ_MODEL=opus)
+```
+"write a function to check if a number is prime, test it on 7, 10, and 13, if any test fails fix it"
+```
+Writes → tests → fixes if needed → stores for reuse.
+
+**Build your own toolkit**
+```
+"build me a program called 'gitstat' that shows current branch, uncommitted changes, and last commit"
+```
+Creates it, tests it, stores it. Next time: just `run gitstat`.
+
+**Shell automation**
+```
+"list all .ts files in this directory and count their lines of code"
+```
+Uses shell effect to run commands and parse results.
 
 **Agent spawns agents** (via llm_call effect)
 ```
-"research quantum computing - spawn 3 sub-agents to explore different aspects, then synthesize"
+"analyze this error log - spawn sub-agents to check each service mentioned"
 ```
 
-**Builds its own toolkit**
-```
-"I'll be asking you to do a lot of git operations. Build yourself a library of git helpers"
-```
-Next session: just uses them.
+## Model Selection
 
-**Meta-programming**
-```
-"write a program that generates SAJ programs from natural language descriptions"
-```
-
-**Personal automation**
-```
-"every morning I want to check HN, my github notifications, and weather. build that as a single program"
+SAJ defaults to Claude Sonnet (faster, cheaper). For complex tasks:
+```bash
+SAJ_MODEL=opus saj   # Use Claude Opus (5x cost, better reasoning)
 ```
 
 ## The Vision
