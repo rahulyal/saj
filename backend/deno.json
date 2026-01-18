@@ -1,0 +1,13 @@
+{
+  "tasks": {
+    "dev": "deno run -A --watch --env --unstable-kv main.ts",
+    "start": "deno run -A --env --unstable-kv main.ts"
+  },
+  "unstable": [
+    "kv"
+  ],
+  "deploy": {
+    "org": "recovery",
+    "app": "saj"
+  }
+}

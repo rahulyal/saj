@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Deno
+.deno/
+
+# Fresh framework build artifacts
+_fresh/
+
+# Claude Code local settings
+.claude/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test artifacts
+test.txt
+model_info.txt
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build outputs
+dist/
+build/
+out/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

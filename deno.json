@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "start": "deno run -A --env --unstable-kv saj.ts",
+    "saj": "deno run -A --env --unstable-kv saj.ts",
+    "saj:local": "deno run -A --env --unstable-kv saj.ts",
+    "saj:cloud": "SAJ_API_URL=https://saj.recovery.deno.net deno run -A --env --unstable-kv saj.ts",
+    "login": "SAJ_API_URL=https://saj.recovery.deno.net deno run -A --env --unstable-kv saj.ts login",
+    "check": "deno check *.ts",
+    "test": "deno test -A"
+  },
+  "imports": {
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@^0.52.0"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true
+  }
+}
