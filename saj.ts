@@ -1010,6 +1010,31 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === "update") {
+    console.log($.dim("  Updating saj..."));
+    const cmd = new Deno.Command("deno", {
+      args: [
+        "install",
+        "--global",
+        "--allow-all",
+        "--unstable-kv",
+        "--name", "saj",
+        "--force",
+        "--reload",
+        "https://cdn.jsdelivr.net/gh/rahulyal/saj@main/saj.ts"
+      ],
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const status = await cmd.spawn().status;
+    if (status.success) {
+      console.log($.green("  ✓ Updated to latest version"));
+    } else {
+      console.log($.red("  ✗ Update failed"));
+    }
+    return;
+  }
+
   // Create client (backend or direct)
   const client = await createClient();
 
