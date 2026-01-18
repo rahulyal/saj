@@ -521,9 +521,10 @@ async function run(
     customHandlers: memoryEffects,
   });
   let iterations = 0;
+  const MAX_ITERATIONS = 20;
   const startTime = Date.now();
 
-  while (iterations++ < 10) {
+  while (iterations++ < MAX_ITERATIONS) {
     spin(`thinking${iterations > 1 ? ` (${iterations})` : ""}...`);
 
     const response = await client.messages.create({
@@ -612,6 +613,12 @@ async function run(
     messages.push({ role: "user", content: toolResults });
 
     if (response.stop_reason === "end_turn") break;
+  }
+
+  // Warn if iteration limit hit
+  if (iterations >= MAX_ITERATIONS) {
+    console.log();
+    console.log($.yellow(`  ⚠ Stopped: hit ${MAX_ITERATIONS} iteration limit (possible infinite loop)`));
   }
 
   // Save environment
