@@ -1,7 +1,8 @@
 {
   "tasks": {
     "dev": "deno run -A --watch --env --unstable-kv main.ts",
-    "start": "deno run -A --env --unstable-kv main.ts"
+    "start": "deno run -A --env --unstable-kv main.ts",
+    "deploy": "deno deploy --prod"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4",
