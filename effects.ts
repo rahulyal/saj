@@ -5,7 +5,7 @@
  * Inspired by MIT's RLM (Recursive Language Models) paper.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "npm:@anthropic-ai/sdk@^0.52.0";
 
 // =============================================================================
 // Effect Context

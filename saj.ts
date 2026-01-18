@@ -7,7 +7,7 @@
  * Programs execute, persist, and compose.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "npm:@anthropic-ai/sdk@^0.52.0";
 import { executeSequence, printValue } from "./eval.ts";
 import { createEffectHandler, type EffectHandler } from "./effects.ts";
 import type {
