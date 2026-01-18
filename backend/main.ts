@@ -151,7 +151,12 @@ async function getMonthlyUsage(userId: string): Promise<UsageData> {
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7); // YYYY-MM
   const result = await kv.get<UsageData>(["usage", userId, monthKey]);
-  return result.value || { input: 0, output: 0, requests: 0, cost: 0 };
+  const data = result.value || { input: 0, output: 0, requests: 0, cost: 0 };
+  // Migrate old data without cost field
+  if (data.cost === undefined) {
+    data.cost = calculateCost(data.input, data.output);
+  }
+  return data;
 }
 
 async function checkBudget(userId: string): Promise<{ allowed: boolean; used: number; limit: number; remaining: number }> {
