@@ -23,12 +23,15 @@ import type {
 // Config
 // =============================================================================
 
-// Model selection: SAJ_MODEL=opus for Opus, defaults to Sonnet
+// Model selection: saj opus, saj sonnet, or SAJ_MODEL env var
 const MODEL_MAP: Record<string, string> = {
   sonnet: "claude-sonnet-4-20250514",
   opus: "claude-opus-4-20250514",
 };
-const MODEL_KEY = Deno.env.get("SAJ_MODEL")?.toLowerCase() || "sonnet";
+// Check if first arg is a model name
+const firstArg = Deno.args[0]?.toLowerCase();
+const MODEL_FROM_ARG = firstArg === "sonnet" || firstArg === "opus" ? firstArg : null;
+const MODEL_KEY = MODEL_FROM_ARG || Deno.env.get("SAJ_MODEL")?.toLowerCase() || "sonnet";
 const MODEL = MODEL_MAP[MODEL_KEY] || MODEL_MAP.sonnet;
 const MAX_TOKENS = 8192;
 const CONTEXT_WINDOW = 200000;
@@ -1230,7 +1233,8 @@ async function createClient(): Promise<ApiClient> {
 // =============================================================================
 
 async function main(): Promise<void> {
-  const args = Deno.args;
+  // Skip first arg if it was used for model selection
+  const args = MODEL_FROM_ARG ? Deno.args.slice(1) : Deno.args;
 
   // Handle auth commands
   if (args[0] === "login") {

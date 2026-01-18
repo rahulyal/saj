@@ -144,7 +144,9 @@ types.ts    Type definitions
 ## Commands
 
 ```bash
-saj              # Start chatting
+saj              # Start chatting (Sonnet)
+saj sonnet       # Start with Sonnet
+saj opus         # Start with Opus (5x cost, better reasoning)
 saj login        # Authenticate via GitHub
 saj logout       # Clear credentials
 saj whoami       # Show current user
@@ -193,7 +195,7 @@ Uses shell effect to run commands and parse results.
 
 SAJ defaults to Claude Sonnet (faster, cheaper). For complex tasks:
 ```bash
-SAJ_MODEL=opus saj   # Use Claude Opus (5x cost, better reasoning)
+saj opus   # Use Claude Opus (5x cost, better reasoning)
 ```
 
 ## The Vision
