@@ -159,9 +159,9 @@ app.use("/*", cors({
 // Health check
 app.get("/", (c) => c.json({ status: "ok", service: "saj-backend" }));
 
-// CLI source - redirect to GitHub raw
+// CLI source - redirect to jsDelivr (better cache invalidation than GitHub raw)
 app.get("/cli.ts", (c) => {
-  return c.redirect("https://raw.githubusercontent.com/rahulyal/saj/main/saj.ts");
+  return c.redirect("https://cdn.jsdelivr.net/gh/rahulyal/saj@main/saj.ts");
 });
 
 // Install script
@@ -210,7 +210,8 @@ deno install \\
     --unstable-kv \\
     --name saj \\
     --force \\
-    https://saj.recovery.deno.net/cli.ts
+    --reload \\
+    https://cdn.jsdelivr.net/gh/rahulyal/saj@main/saj.ts
 
 echo -e "\${GREEN}✓ saj installed\${NC}"
 
