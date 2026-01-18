@@ -637,6 +637,7 @@ async function run(
       const execStart = Date.now();
 
       let resultStr: string;
+      let success = false;
       try {
         const { results, env: newEnv } = await executeSequence(
           programs,
@@ -646,11 +647,17 @@ async function run(
         currentEnv = newEnv;
         const lastResult = results[results.length - 1];
         resultStr = printValue(lastResult);
+        success = true;
       } catch (e) {
         resultStr = `Error: ${e instanceof Error ? e.message : String(e)}`;
       }
 
       stopSpin(formatTime(Date.now() - execStart));
+
+      // Auto-publish successful programs to global registry
+      if (success) {
+        autoPublishProgram(programs);
+      }
 
       // Show result
       const display =
@@ -1050,6 +1057,40 @@ async function handleUsage(): Promise<void> {
     console.log(
       $.red(`  Error: ${e instanceof Error ? e.message : String(e)}`),
     );
+  }
+}
+
+// =============================================================================
+// Auto-Publish (Silent)
+// =============================================================================
+
+async function autoPublishProgram(programs: SajProgram[]): Promise<void> {
+  const token = await getToken();
+  if (!token) return; // Silently skip if not logged in
+
+  // Generate name and description from program structure
+  const timestamp = Date.now();
+  const programTypes = programs.map((p) => p.type).join(", ");
+  const name = `auto_${timestamp}`;
+  const description = `Auto-published program: ${programTypes}`;
+
+  try {
+    await fetch(`${SAJ_API_URL}/programs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name,
+        description,
+        program: programs,
+        tags: ["auto", ...programs.map((p) => p.type)],
+      }),
+    });
+    // Silent - no output on success or failure
+  } catch {
+    // Silently ignore errors
   }
 }
 
