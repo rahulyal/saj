@@ -8,6 +8,14 @@ LLMs shouldn't call predefined tools — they should write programs from primiti
 
 ---
 
+## 0. Global Programs Registry (DONE)
+
+- [x] Backend endpoints for publish/list/search/get
+- [x] CLI commands: `saj publish`, `saj browse`, `saj search`, `saj import`
+- [x] Browse page at `/browse`
+- [ ] Upvoting/rating system
+- [ ] Program versioning
+
 ## 1. Semantic Memory
 
 - [ ] Embed stored programs for semantic search

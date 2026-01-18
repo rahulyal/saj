@@ -1051,6 +1051,157 @@ async function handleUsage(): Promise<void> {
 }
 
 // =============================================================================
+// Global Programs Commands
+// =============================================================================
+
+async function handlePublish(programName?: string): Promise<void> {
+  const token = await getToken();
+  if (!token) {
+    console.log($.dim("  Not logged in. Run 'saj login' first."));
+    return;
+  }
+
+  // Get stored programs
+  const programs = await listPrograms();
+  if (programs.length === 0) {
+    console.log($.dim("  No local programs to publish."));
+    console.log($.dim("  Create programs first, then publish them."));
+    return;
+  }
+
+  // Find program to publish
+  let program: StoredProgram | undefined;
+  if (programName) {
+    program = programs.find(p => p.name.toLowerCase() === programName.toLowerCase());
+    if (!program) {
+      console.log($.red(`  Program "${programName}" not found locally.`));
+      return;
+    }
+  } else {
+    // Show list and let user pick
+    console.log();
+    console.log($.bold("  Local programs:"));
+    programs.forEach((p, i) => {
+      console.log(`  ${$.dim(`${i + 1}.`)} ${$.cyan(p.name)} - ${p.description}`);
+    });
+    console.log();
+    console.log($.dim("  Usage: saj publish <program-name>"));
+    return;
+  }
+
+  // Publish to global registry
+  try {
+    const response = await fetch(`${SAJ_API_URL}/programs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: program.name,
+        description: program.description,
+        program: program.program,
+        tags: program.tags,
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log($.green(`  ✓ Published "${result.name}" to global registry`));
+      console.log($.dim(`  View at: ${SAJ_API_URL}/browse`));
+    } else {
+      const error = await response.json();
+      console.log($.red(`  Error: ${error.error}`));
+    }
+  } catch (e) {
+    console.log($.red(`  Error: ${e instanceof Error ? e.message : String(e)}`));
+  }
+}
+
+async function handleBrowse(): Promise<void> {
+  const cmd = Deno.build.os === "darwin"
+    ? "open"
+    : Deno.build.os === "windows"
+      ? "start"
+      : "xdg-open";
+
+  try {
+    const command = new Deno.Command(cmd, { args: [`${SAJ_API_URL}/browse`] });
+    await command.output();
+    console.log($.dim(`  Opening ${SAJ_API_URL}/browse`));
+  } catch {
+    console.log($.dim(`  Visit: ${SAJ_API_URL}/browse`));
+  }
+}
+
+async function handleSearch(query?: string): Promise<void> {
+  if (!query) {
+    console.log($.dim("  Usage: saj search <query>"));
+    return;
+  }
+
+  try {
+    const response = await fetch(`${SAJ_API_URL}/programs/search/${encodeURIComponent(query)}`);
+    if (response.ok) {
+      const programs = await response.json();
+      console.log();
+      if (programs.length === 0) {
+        console.log($.dim(`  No programs found for "${query}"`));
+      } else {
+        console.log($.bold(`  Found ${programs.length} program${programs.length > 1 ? "s" : ""}:`));
+        for (const p of programs.slice(0, 10)) {
+          console.log(`  ${$.cyan(p.name)} ${$.dim(`(${p.uses} uses)`)} - ${p.description}`);
+        }
+        if (programs.length > 10) {
+          console.log($.dim(`  ... +${programs.length - 10} more`));
+        }
+      }
+    } else {
+      console.log($.red("  Search failed"));
+    }
+  } catch (e) {
+    console.log($.red(`  Error: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  console.log();
+}
+
+async function handleImport(programName?: string): Promise<void> {
+  const token = await getToken();
+  if (!token) {
+    console.log($.dim("  Not logged in. Run 'saj login' first."));
+    return;
+  }
+
+  if (!programName) {
+    console.log($.dim("  Usage: saj import <program-name>"));
+    return;
+  }
+
+  try {
+    const response = await fetch(`${SAJ_API_URL}/programs/${encodeURIComponent(programName)}`);
+    if (response.ok) {
+      const globalProgram = await response.json();
+
+      // Store locally
+      await storeProgram(
+        globalProgram.name,
+        globalProgram.description,
+        globalProgram.program,
+        globalProgram.tags,
+      );
+
+      console.log($.green(`  ✓ Imported "${globalProgram.name}" to local library`));
+      console.log($.dim(`  Run it with: recall_program effect or just ask SAJ`));
+    } else {
+      const error = await response.json();
+      console.log($.red(`  Error: ${error.error}`));
+    }
+  } catch (e) {
+    console.log($.red(`  Error: ${e instanceof Error ? e.message : String(e)}`));
+  }
+}
+
+// =============================================================================
 // Create Client
 // =============================================================================
 
@@ -1099,6 +1250,26 @@ async function main(): Promise<void> {
 
   if (args[0] === "usage") {
     await handleUsage();
+    return;
+  }
+
+  if (args[0] === "publish") {
+    await handlePublish(args[1]);
+    return;
+  }
+
+  if (args[0] === "browse") {
+    await handleBrowse();
+    return;
+  }
+
+  if (args[0] === "search") {
+    await handleSearch(args.slice(1).join(" "));
+    return;
+  }
+
+  if (args[0] === "import") {
+    await handleImport(args[1]);
     return;
   }
 

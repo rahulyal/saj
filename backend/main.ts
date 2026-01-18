@@ -726,6 +726,201 @@ app.get("/usage", async (c: Context) => {
 });
 
 // =============================================================================
+// Global Programs Registry
+// =============================================================================
+
+interface GlobalProgram {
+  id: string;
+  name: string;
+  description: string;
+  program: unknown[];
+  authorId: string;
+  authorUsername: string;
+  uses: number;
+  upvotes: number;
+  createdAt: string;
+  tags: string[];
+}
+
+// Publish a program to global registry
+app.post("/programs", async (c: Context) => {
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ error: "Unauthorized" }, 401);
+
+  const body = await c.req.json();
+  const { name, description, program, tags } = body;
+
+  if (!name || !description || !program) {
+    return c.json({ error: "Missing required fields: name, description, program" }, 400);
+  }
+
+  // Check if name already exists
+  const existingId = await kv.get<string>(["global_programs_by_name", name.toLowerCase()]);
+  if (existingId.value) {
+    return c.json({ error: "Program with this name already exists" }, 409);
+  }
+
+  const id = crypto.randomUUID();
+  const globalProgram: GlobalProgram = {
+    id,
+    name,
+    description,
+    program,
+    authorId: authUser.id,
+    authorUsername: authUser.username,
+    uses: 0,
+    upvotes: 0,
+    createdAt: new Date().toISOString(),
+    tags: tags || [],
+  };
+
+  await kv.set(["global_programs", id], globalProgram);
+  await kv.set(["global_programs_by_name", name.toLowerCase()], id);
+
+  return c.json({ success: true, id, name });
+});
+
+// List all global programs
+app.get("/programs", async (c: Context) => {
+  const programs: GlobalProgram[] = [];
+  const iter = kv.list<GlobalProgram>({ prefix: ["global_programs"] });
+
+  for await (const entry of iter) {
+    // Skip the name index entries
+    if (entry.key[0] === "global_programs_by_name") continue;
+    programs.push(entry.value);
+  }
+
+  // Sort by uses (popularity)
+  programs.sort((a, b) => b.uses - a.uses);
+
+  return c.json(programs);
+});
+
+// Get a specific program
+app.get("/programs/:id", async (c: Context) => {
+  const id = c.req.param("id");
+
+  // Try by ID first
+  let result = await kv.get<GlobalProgram>(["global_programs", id]);
+
+  // Try by name if not found
+  if (!result.value) {
+    const idByName = await kv.get<string>(["global_programs_by_name", id.toLowerCase()]);
+    if (idByName.value) {
+      result = await kv.get<GlobalProgram>(["global_programs", idByName.value]);
+    }
+  }
+
+  if (!result.value) {
+    return c.json({ error: "Program not found" }, 404);
+  }
+
+  // Increment use count
+  const program = result.value;
+  program.uses++;
+  await kv.set(["global_programs", program.id], program);
+
+  return c.json(program);
+});
+
+// Search programs
+app.get("/programs/search/:query", async (c: Context) => {
+  const query = c.req.param("query").toLowerCase();
+  const results: GlobalProgram[] = [];
+
+  const iter = kv.list<GlobalProgram>({ prefix: ["global_programs"] });
+  for await (const entry of iter) {
+    if (entry.key[0] === "global_programs_by_name") continue;
+    const prog = entry.value;
+    if (
+      prog.name.toLowerCase().includes(query) ||
+      prog.description.toLowerCase().includes(query) ||
+      prog.tags.some((t: string) => t.toLowerCase().includes(query))
+    ) {
+      results.push(prog);
+    }
+  }
+
+  results.sort((a, b) => b.uses - a.uses);
+  return c.json(results);
+});
+
+// Browse page - simple HTML
+app.get("/browse", async (c: Context) => {
+  const programs: GlobalProgram[] = [];
+  const iter = kv.list<GlobalProgram>({ prefix: ["global_programs"] });
+
+  for await (const entry of iter) {
+    if (entry.key[0] === "global_programs_by_name") continue;
+    programs.push(entry.value);
+  }
+  programs.sort((a, b) => b.uses - a.uses);
+
+  const programsHtml = programs.length === 0
+    ? '<p style="color:#888">No programs published yet. Be the first!</p>'
+    : programs.map(p => `
+      <div class="program" onclick="toggle('${p.id}')">
+        <div class="header">
+          <span class="name">${p.name}</span>
+          <span class="meta">${p.uses} uses · by ${p.authorUsername}</span>
+        </div>
+        <p class="desc">${p.description}</p>
+        <div class="tags">${p.tags.map(t => `<span class="tag">${t}</span>`).join("")}</div>
+        <pre id="${p.id}" class="json hidden">${JSON.stringify(p.program, null, 2)}</pre>
+      </div>
+    `).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <title>SAJ Programs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0f; color: #e0e0e0; margin: 0; padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { color: #e94560; font-size: 1.5rem; }
+    .subtitle { color: #888; margin-top: -10px; margin-bottom: 30px; }
+    .program { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: background 0.2s; }
+    .program:hover { background: #1a2744; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .name { color: #e94560; font-weight: 600; font-size: 1.1rem; }
+    .meta { color: #666; font-size: 0.85rem; }
+    .desc { color: #aaa; margin: 0 0 8px 0; }
+    .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag { background: #0f3460; color: #88c0d0; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
+    .json { background: #0d1117; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; color: #7ee787; margin-top: 12px; }
+    .hidden { display: none; }
+    .install { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 30px; }
+    .install code { background: #0d1117; padding: 8px 12px; border-radius: 4px; display: block; color: #7ee787; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>λ SAJ Programs</h1>
+    <p class="subtitle">Global registry of self-programming agent programs</p>
+
+    <div class="install">
+      <p style="margin:0 0 8px 0;color:#888">Install SAJ:</p>
+      <code>curl -fsSL https://saj.recovery.deno.net/install.sh | bash</code>
+    </div>
+
+    ${programsHtml}
+  </div>
+  <script>
+    function toggle(id) {
+      const el = document.getElementById(id);
+      el.classList.toggle('hidden');
+    }
+  </script>
+</body>
+</html>`;
+
+  return c.html(html);
+});
+
+// =============================================================================
 // Start
 // =============================================================================
 

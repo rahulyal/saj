@@ -150,6 +150,12 @@ saj logout       # Clear credentials
 saj whoami       # Show current user
 saj usage        # Show token usage & budget
 saj update       # Update to latest version
+
+# Global Programs Registry
+saj browse       # Open global programs browser
+saj search <q>   # Search global programs
+saj publish <n>  # Publish local program to global registry
+saj import <n>   # Import global program to local library
 ```
 
 ## What's Possible
