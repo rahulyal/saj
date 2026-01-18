@@ -22,6 +22,13 @@ const FRONTEND_URL = Deno.env.get("FRONTEND_URL") || "http://localhost:3000";
 // Rate limiting: requests per hour per user
 const RATE_LIMIT = parseInt(Deno.env.get("RATE_LIMIT") || "100");
 
+// Billing: monthly free tier in dollars (configurable via env)
+const MONTHLY_FREE_LIMIT = parseFloat(Deno.env.get("MONTHLY_FREE_LIMIT") || "10");
+
+// Claude Sonnet pricing (per token)
+const INPUT_PRICE_PER_TOKEN = 3 / 1_000_000;   // $3 per 1M input tokens
+const OUTPUT_PRICE_PER_TOKEN = 15 / 1_000_000; // $15 per 1M output tokens
+
 // =============================================================================
 // KV Store
 // =============================================================================
@@ -129,17 +136,49 @@ async function checkRateLimit(userId: string): Promise<{ allowed: boolean; remai
   return { allowed: true, remaining: RATE_LIMIT - newEntry.count, resetAt: newEntry.resetAt };
 }
 
+function calculateCost(inputTokens: number, outputTokens: number): number {
+  return (inputTokens * INPUT_PRICE_PER_TOKEN) + (outputTokens * OUTPUT_PRICE_PER_TOKEN);
+}
+
+interface UsageData {
+  input: number;
+  output: number;
+  requests: number;
+  cost: number;
+}
+
+async function getMonthlyUsage(userId: string): Promise<UsageData> {
+  const now = new Date().toISOString();
+  const monthKey = now.slice(0, 7); // YYYY-MM
+  const result = await kv.get<UsageData>(["usage", userId, monthKey]);
+  return result.value || { input: 0, output: 0, requests: 0, cost: 0 };
+}
+
+async function checkBudget(userId: string): Promise<{ allowed: boolean; used: number; limit: number; remaining: number }> {
+  const usage = await getMonthlyUsage(userId);
+  const remaining = Math.max(0, MONTHLY_FREE_LIMIT - usage.cost);
+  return {
+    allowed: usage.cost < MONTHLY_FREE_LIMIT,
+    used: usage.cost,
+    limit: MONTHLY_FREE_LIMIT,
+    remaining,
+  };
+}
+
 async function logUsage(userId: string, inputTokens: number, outputTokens: number): Promise<void> {
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7); // YYYY-MM
 
-  const result = await kv.get<{ input: number; output: number; requests: number }>(["usage", userId, monthKey]);
-  const usage = result.value || { input: 0, output: 0, requests: 0 };
+  const result = await kv.get<UsageData>(["usage", userId, monthKey]);
+  const usage = result.value || { input: 0, output: 0, requests: 0, cost: 0 };
+
+  const callCost = calculateCost(inputTokens, outputTokens);
 
   await kv.set(["usage", userId, monthKey], {
     input: usage.input + inputTokens,
     output: usage.output + outputTokens,
     requests: usage.requests + 1,
+    cost: usage.cost + callCost,
   });
 }
 
@@ -472,6 +511,17 @@ app.post("/v1/messages", async (c) => {
     }, 429);
   }
 
+  // Check monthly budget
+  const budget = await checkBudget(authUser.id);
+  if (!budget.allowed) {
+    return c.json({
+      error: "Monthly budget exceeded",
+      used: `$${budget.used.toFixed(2)}`,
+      limit: `$${budget.limit.toFixed(2)}`,
+      message: "You've used your $10 free tier this month. Contact @rahulyal for extended access.",
+    }, 402); // 402 Payment Required
+  }
+
   // Get request body
   const body = await c.req.text();
 
@@ -515,15 +565,20 @@ app.get("/usage", async (c) => {
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7);
 
-  const result = await kv.get<{ input: number; output: number; requests: number }>(["usage", authUser.id, monthKey]);
-  const usage = result.value || { input: 0, output: 0, requests: 0 };
-
+  const usage = await getMonthlyUsage(authUser.id);
+  const budget = await checkBudget(authUser.id);
   const rateLimit = await kv.get<RateLimitEntry>(["rate_limit", authUser.id]);
 
   return c.json({
     month: monthKey,
     tokens: { input: usage.input, output: usage.output },
     requests: usage.requests,
+    budget: {
+      used: parseFloat(budget.used.toFixed(4)),
+      limit: budget.limit,
+      remaining: parseFloat(budget.remaining.toFixed(4)),
+      percentUsed: parseFloat(((budget.used / budget.limit) * 100).toFixed(1)),
+    },
     rateLimit: {
       limit: RATE_LIMIT,
       remaining: rateLimit.value ? Math.max(0, RATE_LIMIT - rateLimit.value.count) : RATE_LIMIT,

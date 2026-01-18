@@ -949,6 +949,10 @@ async function handleUsage(): Promise<void> {
       console.log($.bold("  Usage this month:"));
       console.log(`  ${$.cyan("requests:")} ${usage.requests}`);
       console.log(`  ${$.cyan("tokens:")} ${formatTokens(usage.tokens.input)}↑ ${formatTokens(usage.tokens.output)}↓`);
+      if (usage.budget) {
+        const budgetColor = usage.budget.percentUsed > 80 ? $.yellow : $.green;
+        console.log(`  ${$.cyan("budget:")} $${usage.budget.used.toFixed(2)} / $${usage.budget.limit} (${budgetColor(usage.budget.percentUsed + "%")})`);
+      }
       console.log(`  ${$.cyan("rate limit:")} ${usage.rateLimit.remaining}/${usage.rateLimit.limit} remaining`);
     } else {
       console.log($.red("  Could not fetch usage"));
