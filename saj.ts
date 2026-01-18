@@ -1178,6 +1178,60 @@ async function handleUsage(): Promise<void> {
   }
 }
 
+async function handleAdmin(): Promise<void> {
+  const token = await getToken();
+  if (!token) {
+    console.log($.dim("  Not logged in"));
+    return;
+  }
+
+  try {
+    const response = await fetch(`${SAJ_API_URL}/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (response.status === 403) {
+      console.log($.red("  Admin access required"));
+      return;
+    }
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log();
+      console.log($.bold(`  Admin Dashboard (${data.month})`));
+      console.log($.dim("  ─".repeat(25)));
+      console.log(
+        `  ${$.cyan("Total users:")} ${data.totalUsers}`,
+      );
+      console.log(
+        `  ${$.cyan("Total requests:")} ${data.totalRequests}`,
+      );
+      console.log(
+        `  ${$.cyan("Total cost:")} $${data.totalCost.toFixed(2)}`,
+      );
+      console.log();
+      console.log($.bold("  Users (by usage):"));
+      console.log($.dim("  ─".repeat(25)));
+
+      for (const user of data.users) {
+        const costColor = user.usage.cost > 5 ? $.yellow : $.dim;
+        const lastLogin = new Date(user.lastLoginAt).toLocaleDateString();
+        console.log(
+          `  ${$.green(user.username.padEnd(20))} ${costColor(`$${user.usage.cost.toFixed(2)}`.padStart(8))} ${$.dim(`${user.usage.requests} reqs`)} ${$.dim(`· last: ${lastLogin}`)}`,
+        );
+      }
+      console.log();
+    } else {
+      const err = await response.json();
+      console.log($.red(`  Error: ${err.error}`));
+    }
+  } catch (e) {
+    console.log(
+      $.red(`  Error: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  }
+}
+
 // =============================================================================
 // Auto-Publish (Silent) with LLM-generated metadata
 // =============================================================================
@@ -1465,6 +1519,11 @@ async function main(): Promise<void> {
 
   if (args[0] === "usage") {
     await handleUsage();
+    return;
+  }
+
+  if (args[0] === "admin") {
+    await handleAdmin();
     return;
   }
 
