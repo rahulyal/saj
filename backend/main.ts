@@ -37,10 +37,17 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 // =============================================================================
-// KV Store
+// KV Store (lazy init to survive KV outages)
 // =============================================================================
 
-const kv = await Deno.openKv();
+let kv: Deno.Kv | null = null;
+
+async function getKv(): Promise<Deno.Kv> {
+  if (!kv) {
+    kv = await Deno.openKv();
+  }
+  return kv;
+}
 
 interface User {
   id: string;
@@ -62,7 +69,7 @@ interface RateLimitEntry {
 // =============================================================================
 
 async function getUser(userId: string): Promise<User | null> {
-  const result = await kv.get<User>(["users", userId]);
+  const result = await (await getKv()).get<User>(["users", userId]);
   return result.value;
 }
 
@@ -72,7 +79,7 @@ async function createOrUpdateUser(githubUser: {
   email: string | null;
   avatar_url: string;
 }): Promise<User> {
-  const existingByGithub = await kv.get<string>([
+  const existingByGithub = await (await getKv()).get<string>([
     "github_to_user",
     githubUser.id,
   ]);
@@ -117,8 +124,8 @@ async function createOrUpdateUser(githubUser: {
   }
 
   // Save user and mapping
-  await kv.set(["users", user.id], user);
-  await kv.set(["github_to_user", githubUser.id], user.id);
+  await (await getKv()).set(["users", user.id], user);
+  await (await getKv()).set(["github_to_user", githubUser.id], user.id);
 
   return user;
 }
@@ -129,11 +136,11 @@ async function checkRateLimit(
   const now = Date.now();
   const hourFromNow = now + 60 * 60 * 1000;
 
-  const result = await kv.get<RateLimitEntry>(["rate_limit", userId]);
+  const result = await (await getKv()).get<RateLimitEntry>(["rate_limit", userId]);
 
   if (!result.value || result.value.resetAt < now) {
     // New window
-    await kv.set(["rate_limit", userId], { count: 1, resetAt: hourFromNow });
+    await (await getKv()).set(["rate_limit", userId], { count: 1, resetAt: hourFromNow });
     return { allowed: true, remaining: RATE_LIMIT - 1, resetAt: hourFromNow };
   }
 
@@ -146,7 +153,7 @@ async function checkRateLimit(
     count: result.value.count + 1,
     resetAt: result.value.resetAt,
   };
-  await kv.set(["rate_limit", userId], newEntry);
+  await (await getKv()).set(["rate_limit", userId], newEntry);
 
   return {
     allowed: true,
@@ -174,13 +181,13 @@ interface UsageData {
 async function getMonthlyUsage(userId: string): Promise<UsageData> {
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7); // YYYY-MM
-  const result = await kv.get<UsageData>(["usage", userId, monthKey]);
+  const result = await (await getKv()).get<UsageData>(["usage", userId, monthKey]);
   const data = result.value || { input: 0, output: 0, requests: 0, cost: 0 };
   // Migrate old data without cost field (handles null and undefined)
   if (data.cost == null) {
     data.cost = calculateCost(data.input, data.output);
     // Persist the migrated data
-    await kv.set(["usage", userId, monthKey], data);
+    await (await getKv()).set(["usage", userId, monthKey], data);
   }
   return data;
 }
@@ -212,12 +219,12 @@ async function logUsage(
   const now = new Date().toISOString();
   const monthKey = now.slice(0, 7); // YYYY-MM
 
-  const result = await kv.get<UsageData>(["usage", userId, monthKey]);
+  const result = await (await getKv()).get<UsageData>(["usage", userId, monthKey]);
   const usage = result.value || { input: 0, output: 0, requests: 0, cost: 0 };
 
   const callCost = calculateCost(inputTokens, outputTokens, model);
 
-  await kv.set(["usage", userId, monthKey], {
+  await (await getKv()).set(["usage", userId, monthKey], {
     input: usage.input + inputTokens,
     output: usage.output + outputTokens,
     requests: usage.requests + 1,
@@ -708,7 +715,7 @@ app.get("/usage", async (c: Context) => {
 
   const usage = await getMonthlyUsage(authUser.id);
   const budget = await checkBudget(authUser.id);
-  const rateLimit = await kv.get<RateLimitEntry>(["rate_limit", authUser.id]);
+  const rateLimit = await (await getKv()).get<RateLimitEntry>(["rate_limit", authUser.id]);
 
   return c.json({
     month: monthKey,
@@ -748,7 +755,7 @@ app.post("/admin/reset-budget/:username", async (c: Context) => {
   const targetUsername = c.req.param("username");
 
   // Find user by username
-  const iter = kv.list<User>({ prefix: ["users"] });
+  const iter = (await getKv()).list<User>({ prefix: ["users"] });
   let targetUser: User | null = null;
   for await (const entry of iter) {
     if (entry.value.username === targetUsername) {
@@ -763,7 +770,7 @@ app.post("/admin/reset-budget/:username", async (c: Context) => {
 
   // Reset their budget for current month
   const monthKey = new Date().toISOString().slice(0, 7);
-  await kv.delete(["usage", targetUser.id, monthKey]);
+  await (await getKv()).delete(["usage", targetUser.id, monthKey]);
 
   return c.json({
     success: true,
@@ -794,7 +801,7 @@ app.get("/admin/users", async (c: Context) => {
     };
   }[] = [];
 
-  const iter = kv.list<User>({ prefix: ["users"] });
+  const iter = (await getKv()).list<User>({ prefix: ["users"] });
   for await (const entry of iter) {
     const user = entry.value;
     const usage = await getMonthlyUsage(user.id);
@@ -854,7 +861,7 @@ app.post("/programs", async (c: Context) => {
   }
 
   // Check if name already exists
-  const existingId = await kv.get<string>(["global_programs_by_name", name.toLowerCase()]);
+  const existingId = await (await getKv()).get<string>(["global_programs_by_name", name.toLowerCase()]);
   if (existingId.value) {
     return c.json({ error: "Program with this name already exists" }, 409);
   }
@@ -873,8 +880,8 @@ app.post("/programs", async (c: Context) => {
     tags: tags || [],
   };
 
-  await kv.set(["global_programs", id], globalProgram);
-  await kv.set(["global_programs_by_name", name.toLowerCase()], id);
+  await (await getKv()).set(["global_programs", id], globalProgram);
+  await (await getKv()).set(["global_programs_by_name", name.toLowerCase()], id);
 
   return c.json({ success: true, id, name });
 });
@@ -882,7 +889,7 @@ app.post("/programs", async (c: Context) => {
 // List all global programs
 app.get("/programs", async (c: Context) => {
   const programs: GlobalProgram[] = [];
-  const iter = kv.list<GlobalProgram>({ prefix: ["global_programs"] });
+  const iter = (await getKv()).list<GlobalProgram>({ prefix: ["global_programs"] });
 
   for await (const entry of iter) {
     // Skip the name index entries
@@ -901,13 +908,13 @@ app.get("/programs/:id", async (c: Context) => {
   const id = c.req.param("id");
 
   // Try by ID first
-  let result = await kv.get<GlobalProgram>(["global_programs", id]);
+  let result = await (await getKv()).get<GlobalProgram>(["global_programs", id]);
 
   // Try by name if not found
   if (!result.value) {
-    const idByName = await kv.get<string>(["global_programs_by_name", id.toLowerCase()]);
+    const idByName = await (await getKv()).get<string>(["global_programs_by_name", id.toLowerCase()]);
     if (idByName.value) {
-      result = await kv.get<GlobalProgram>(["global_programs", idByName.value]);
+      result = await (await getKv()).get<GlobalProgram>(["global_programs", idByName.value]);
     }
   }
 
@@ -918,7 +925,7 @@ app.get("/programs/:id", async (c: Context) => {
   // Increment use count
   const program = result.value;
   program.uses++;
-  await kv.set(["global_programs", program.id], program);
+  await (await getKv()).set(["global_programs", program.id], program);
 
   return c.json(program);
 });
@@ -928,7 +935,7 @@ app.get("/programs/search/:query", async (c: Context) => {
   const query = c.req.param("query").toLowerCase();
   const results: GlobalProgram[] = [];
 
-  const iter = kv.list<GlobalProgram>({ prefix: ["global_programs"] });
+  const iter = (await getKv()).list<GlobalProgram>({ prefix: ["global_programs"] });
   for await (const entry of iter) {
     if (entry.key[0] === "global_programs_by_name") continue;
     const prog = entry.value;
@@ -948,7 +955,7 @@ app.get("/programs/search/:query", async (c: Context) => {
 // Browse page - simple HTML
 app.get("/browse", async (c: Context) => {
   const programs: GlobalProgram[] = [];
-  const iter = kv.list<GlobalProgram>({ prefix: ["global_programs"] });
+  const iter = (await getKv()).list<GlobalProgram>({ prefix: ["global_programs"] });
 
   for await (const entry of iter) {
     if (entry.key[0] === "global_programs_by_name") continue;
