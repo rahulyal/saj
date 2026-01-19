@@ -2,6 +2,7 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@*": "4.11.4",
+    "npm:@anthropic-ai/sdk@*": "0.52.0",
     "npm:@anthropic-ai/sdk@0.52": "0.52.0"
   },
   "jsr": {

@@ -37,13 +37,19 @@ export interface SajVariable {
 
 export interface ArithmeticOperation {
   type: "arithmeticOperation";
-  operation: "+" | "-" | "*" | "/";
+  operation: "+" | "-" | "*" | "/" | "%";
   operands: SajExpression[];
 }
 
 export interface ComparativeOperation {
   type: "comparativeOperation";
-  operation: "<" | "=" | ">";
+  operation: "<" | "=" | ">" | "!=" | "<=" | ">=";
+  operands: SajExpression[];
+}
+
+export interface BooleanOperation {
+  type: "booleanOperation";
+  operation: "and" | "or" | "not";
   operands: SajExpression[];
 }
 
@@ -97,6 +103,7 @@ export type SajExpression =
   | SajVariable
   | ArithmeticOperation
   | ComparativeOperation
+  | BooleanOperation
   | Procedure
   | ProcedureCall
   | Conditional

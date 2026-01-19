@@ -1,9 +1,9 @@
 #!/usr/bin/env -S deno run -A --env --unstable-kv
 
 /**
- * SAJ - Self-Programming Agent
+ * SAJ - Simple Agentic JSON
  *
- * LLMs don't call tools. They write programs.
+ * LLMs don't call tools. They write JSON programs.
  * Programs execute, persist, and compose.
  */
 
@@ -414,34 +414,23 @@ TYPES:
 {"type":"string","value":"hello"}
 {"type":"boolean","value":true}
 {"type":"variable","key":"x"}
-{"type":"arithmeticOperation","operation":"+"|"-"|"*"|"/","operands":[...]}
-{"type":"comparativeOperation","operation":"<"|"="|">","operands":[...]}
+{"type":"arithmeticOperation","operation":"+"|"-"|"*"|"/"|"%","operands":[...]}
+{"type":"comparativeOperation","operation":"<"|"="|">"|"!="|"<="|">=","operands":[...]}
+{"type":"booleanOperation","operation":"and"|"or"|"not","operands":[...]}
 {"type":"procedure","inputs":["x"],"body":<expr>}
 {"type":"procedureCall","procedure":<var>,"arguments":[...]}
 {"type":"conditional","condition":<expr>,"trueReturn":<expr>,"falseReturn":<expr>}
 {"type":"definition","key":{"type":"variable","key":"name"},"value":<expr>}
 
-EFFECTS (I/O):
+EFFECTS:
 {"type":"effect","name":"<effect>","args":{...},"bind":"var","then":<expr>}
 
-Available effects:
-- fetch: {"args":{"url":"..."}} - HTTP GET
-- read_file: {"args":{"path":"..."}} - read file
-- write_file: {"args":{"path":"...","content":"..."}} - write file
-- shell: {"args":{"cmd":"...","args":[...]}} - run command
-- llm_call: {"args":{"prompt":"...","expect":"text|number|json"}} - recursive LLM
-- get_env: {"args":{}} - SEE what's already defined in current session
-- store_program: {"args":{"name":"...","description":"...","program":[...],"tags":[...]}} - SAVE for later
-- search_programs: {"args":{"query":"..."}} - FIND your saved programs
-- list_programs: {"args":{}} - LIST all your programs
-- recall_program: {"args":{"name":"..."}} - GET a saved program to run
+Core: fetch {url}, read_file {path}, write_file {path,content}, shell {cmd,args}, llm_call {prompt,system?,context_name?}
+Files: file_grep {path,pattern}, file_stat {path}, file_slice {path,start,end}, glob {pattern}
+Context: context_set {name,text}, context_get {name}
+Memory: store_program, search_programs, list_programs, recall_program, get_env
 
-PATTERNS:
-- Return effect result: "bind":"x","then":{"type":"variable","key":"x"}
-- Chain effects: "then":{"type":"effect",...}
-- Recursion: define procedure first, then call it
-
-You build your own library. Store programs you might reuse. Search before writing from scratch.`,
+Use shell for text processing (grep/sed/awk). Build reusable programs.`,
   input_schema: {
     type: "object" as const,
     properties: {
@@ -461,55 +450,20 @@ You build your own library. Store programs you might reuse. Search before writin
 
 const SYSTEM = `You are SAJ - a self-programming agent.
 
-You don't call predefined tools. You WRITE programs in SAJ (Scheme As JSON) and execute them.
+You WRITE programs in SAJ (Simple Agentic JSON). Every action = a program.
 
-## Your Capabilities
-- Compute: arithmetic, logic, recursion, conditionals
-- Act: fetch URLs, read/write files, run shell commands
-- Think: call yourself recursively with llm_call for complex reasoning
-- Remember: store programs you write, search and recall them later
+## Workflow
+1. Write a SAJ program to solve the task
+2. If it fails: read error, fix, retry immediately
+3. Store useful programs for reuse (search before rewriting)
 
-## Your Workflow
-1. When asked to do something, WRITE a SAJ program
-2. Execute it with the saj tool
-3. If it FAILS: analyze the error, FIX the program, and RETRY immediately
-4. If it SUCCEEDS: consider storing it for reuse
-5. Next time, SEARCH your programs before writing from scratch
+## Key Patterns
+- Recursion: define procedure, then call it
+- RLM: file_slice to read chunks → llm_call each → synthesize
+- Text processing: use shell with grep/sed/awk
+- Context sharing: context_set to store, llm_call with context_name to reference
 
-## Self-Improvement Loop (CRITICAL)
-When a program fails:
-1. READ the error message carefully
-2. IDENTIFY what went wrong (syntax? logic? wrong effect args?)
-3. REWRITE the program with the fix
-4. EXECUTE again immediately
-5. REPEAT until it works - don't give up after one failure!
-
-For complex tasks, TEST your program with simple inputs first:
-- Write the function
-- Test it with known values
-- If wrong, fix and retest
-- Only store once it's verified working
-
-## Key Insight
-You're not a chatbot. You're a computation engine that programs itself.
-Every action = a program. Programs persist. You get better over time.
-FAILURES ARE EXPECTED - the loop is: write → fail → fix → succeed.
-
-## Environment Persists!
-Procedures you define stay in the environment across interactions.
-Before re-defining something, use get_env to check if it already exists.
-If factorial is already defined, just CALL it - don't redefine.
-
-## Memory Effects
-- store_program: Save a program for later (name, description, program, tags)
-- search_programs: Find programs by query
-- list_programs: See all your programs
-- recall_program: Get a program to execute again
-
-When you store a program, give it a clear name and description. Tag it well.
-When asked to do something you've done before, recall and reuse.
-
-Be concise. Write clean programs. Build your library.`;
+Environment persists. Use get_env before redefining. Build your library.`;
 
 // =============================================================================
 // UI Helpers
@@ -606,6 +560,7 @@ async function run(
   session: Session,
   env: Environment,
   messages: Anthropic.MessageParam[],
+  contextStore: Map<string, string>,  // RLM: session-scoped context store
 ): Promise<{ env: Environment; messages: Anthropic.MessageParam[] }> {
   // Check context usage - auto-summarize if over 100%
   const usage =
@@ -662,9 +617,10 @@ async function run(
   // Setup effect handler with memory effects (closure over currentEnv)
   const memoryEffects = createMemoryEffects(() => currentEnv);
   const effectHandler = createEffectHandler({
-    anthropicClient: client instanceof Anthropic ? client : undefined,
+    llmClient: client,  // Works with both Anthropic SDK and SajApiClient
     model: MODEL,
     customHandlers: memoryEffects,
+    contextStore,  // RLM: session-scoped context store
   });
   let iterations = 0;
   const startTime = Date.now();
@@ -672,13 +628,32 @@ async function run(
   while (iterations++ < MAX_ITERATIONS) {
     spin(`thinking${iterations > 1 ? ` (${iterations})` : ""}...`);
 
+    // Build system prompt with caching
+    const systemBlocks: Anthropic.TextBlockParam[] = [
+      {
+        type: "text",
+        text: SYSTEM,
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+    if (session.summary) {
+      systemBlocks.push({
+        type: "text",
+        text: `\n\nPrevious context summary: ${session.summary}`,
+      });
+    }
+
+    // Cache the tool definition too
+    const cachedTool = {
+      ...SAJ_TOOL,
+      cache_control: { type: "ephemeral" as const },
+    };
+
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: session.summary
-        ? `${SYSTEM}\n\nPrevious context summary: ${session.summary}`
-        : SYSTEM,
-      tools: [SAJ_TOOL],
+      system: systemBlocks,
+      tools: [cachedTool],
       messages,
     });
 
@@ -849,6 +824,9 @@ async function repl(client: ApiClient): Promise<void> {
   let env = await loadEnv();
   let messages: Anthropic.MessageParam[] = [];
 
+  // RLM: Session-scoped context store for large results
+  let contextStore = new Map<string, string>();
+
   // Show session status on start
   if (session.messageCount > 0) {
     const usage = (
@@ -887,6 +865,7 @@ async function repl(client: ApiClient): Promise<void> {
       env = {};
       await saveEnv(env);
       messages = [];
+      contextStore.clear();  // RLM: clear context store too
       console.log($.dim("  cleared"));
       console.log();
       continue;
@@ -934,7 +913,7 @@ async function repl(client: ApiClient): Promise<void> {
 
     // Run agent
     try {
-      const result = await run(client, input, session, env, messages);
+      const result = await run(client, input, session, env, messages, contextStore);
       env = result.env;
       messages = result.messages;
     } catch (e) {
@@ -955,9 +934,10 @@ async function repl(client: ApiClient): Promise<void> {
 async function singleShot(client: ApiClient, prompt: string): Promise<void> {
   const session = await loadSession();
   const env = await loadEnv();
+  const contextStore = new Map<string, string>();  // RLM: fresh context for single-shot
 
   try {
-    await run(client, prompt, session, env, []);
+    await run(client, prompt, session, env, [], contextStore);
   } catch (e) {
     console.log($.red(`error: ${e instanceof Error ? e.message : String(e)}`));
   }

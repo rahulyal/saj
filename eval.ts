@@ -107,6 +107,9 @@ export async function evaluate(
         case "/":
           result = values.reduce((a, b) => a / b);
           break;
+        case "%":
+          result = values.reduce((a, b) => a % b);
+          break;
       }
       return { result, env };
     }
@@ -126,14 +129,54 @@ export async function evaluate(
         case "=":
           result = values.every((v, i, arr) => i === 0 || v === arr[i - 1]);
           break;
+        case "!=":
+          result = values[0] !== values[1];
+          break;
         case "<":
           result = values.every((v, i, arr) => i === 0 || arr[i - 1] < v);
           break;
         case ">":
           result = values.every((v, i, arr) => i === 0 || arr[i - 1] > v);
           break;
+        case "<=":
+          result = values.every((v, i, arr) => i === 0 || arr[i - 1] <= v);
+          break;
+        case ">=":
+          result = values.every((v, i, arr) => i === 0 || arr[i - 1] >= v);
+          break;
       }
       return { result, env };
+    }
+
+    // =========================================================================
+    // Boolean operations
+    // =========================================================================
+    case "booleanOperation": {
+      const { operation, operands } = expression;
+
+      if (operation === "not") {
+        const { result } = await evaluate(operands[0] as SajExpression, env, effectHandler);
+        return { result: !result, env };
+      }
+
+      // For and/or, evaluate lazily
+      if (operation === "and") {
+        for (const op of operands) {
+          const { result } = await evaluate(op as SajExpression, env, effectHandler);
+          if (!result) return { result: false, env };
+        }
+        return { result: true, env };
+      }
+
+      if (operation === "or") {
+        for (const op of operands) {
+          const { result } = await evaluate(op as SajExpression, env, effectHandler);
+          if (result) return { result: true, env };
+        }
+        return { result: false, env };
+      }
+
+      return { result: false, env };
     }
 
     // =========================================================================

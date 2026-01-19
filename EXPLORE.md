@@ -40,15 +40,63 @@ LLMs shouldn't call predefined tools — they should write programs from primiti
 - [ ] Project scaffolding from natural language
 - [ ] Refactoring via SAJ programs
 
-## 4. Multi-Agent Swarm
+## 4. Recursive Language Model (RLM) Patterns
 
-- [ ] `llm_call` spawns sub-agents with isolated SAJ envs
-- [ ] Parent can pass programs to children
+Inspired by [MIT's RLM paper](https://arxiv.org/abs/2512.24601) — LLMs that call themselves on sub-problems.
+
+**Core idea**: Instead of forcing one LLM call to process everything, let the LLM call itself recursively. Context becomes a variable that sub-calls can reference.
+
+### Text Effects (chunking primitives) ✓
+- [x] `text_slice` - substring extraction
+- [x] `text_chunk` - split text into array of chunks
+- [x] `text_grep` - filter lines by pattern
+- [x] `text_length` - count characters/lines
+- [x] `text_lines` - split text into lines array
+- [x] `text_join` - join array with separator
+
+### File Operations (performant) ✓
+- [x] `file_grep` - search file by pattern without loading all content
+- [x] `file_stat` - get file stats (size, lines, modified)
+- [x] `file_slice` - read specific line range
+- [x] `glob` - find files matching pattern
+
+### Context Store (shared state for sub-calls) ✓
+- [x] `context_set` - store large text by name (session-scoped)
+- [x] `context_get` - retrieve stored context
+- [x] `context_list` - list all stored contexts
+- [x] `context_clear` - clear context(s)
+- [x] `llm_call` accepts `context_name` arg, auto-injects stored text
+
+### Enhanced llm_call ✓
+- [x] `system` prompt support
+- [x] `depth` tracking to prevent infinite recursion
+- [x] `context_name` to reference stored contexts
+- [x] Auto-store large results (>5000 chars) to context store
+
+### Parallel Execution
+- [ ] `parallel` effect type - run multiple effects concurrently
+- [ ] `map_llm` - map llm_call over array of chunks
+
+### What This Enables
+- Process files larger than context window (chunk → map → reduce)
+- Codebase-wide analysis with shared context
+- Research tasks: fetch multiple sources, synthesize
+- Self-verification loops
+
+**Key insight**: SAJ becomes "Claude Code that builds itself" — same capabilities, but programs persist and accumulate.
+
+## 5. Multi-Agent Swarm
+
+- [ ] `llm_call_agent` effect - spawns full SAJ sub-agent (not just raw LLM)
+- [ ] Sub-agents can read/write files, run shell, call APIs
+- [ ] Turtles all the way down - sub-agents can spawn sub-agents
+- [ ] Shared vs isolated environments (procedures, context store)
+- [ ] Agent specialization via different system prompts
+- [ ] Cost controls: depth limit, token budget, time limit
 - [ ] Parallel execution of subtasks
 - [ ] Shared program library across agents
-- [ ] Agent specialization (researcher, coder, tester)
 
-## 5. MCP Integration
+## 6. MCP Integration
 
 - [ ] SAJ as an MCP server
 - [ ] SAJ as an MCP client (connect to other servers)
@@ -56,7 +104,7 @@ LLMs shouldn't call predefined tools — they should write programs from primiti
 - [ ] Browser automation
 - [ ] Universal agent backbone
 
-## 6. Planning & Backtracking
+## 7. Planning & Backtracking
 
 - [ ] Multi-step goal decomposition
 - [ ] State checkpoints before risky operations
@@ -64,7 +112,7 @@ LLMs shouldn't call predefined tools — they should write programs from primiti
 - [ ] Dependency graph for complex tasks
 - [ ] "Think ahead" mode with plan visualization
 
-## 7. Observability
+## 8. Observability
 
 - [ ] Visualize program execution (AST tree)
 - [ ] Step-through debugging mode
@@ -95,6 +143,6 @@ LLMs shouldn't call predefined tools — they should write programs from primiti
 
 ## References
 
-- [RLM Paper (MIT)](https://arxiv.org/abs/2310.09821) - Recursive Language Models
+- [RLM Paper (MIT)](https://arxiv.org/abs/2512.24601) - Recursive Language Models
 - [MCP](https://modelcontextprotocol.io/) - Model Context Protocol
 - [SICP](https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/index.html) - Structure and Interpretation of Computer Programs

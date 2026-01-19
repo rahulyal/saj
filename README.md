@@ -1,4 +1,4 @@
-# SAJ - Self-Programming Agent
+# SAJ - Simple Agentic JSON
 
 LLMs don't call tools. They write programs.
 
@@ -6,10 +6,10 @@ LLMs don't call tools. They write programs.
 
 ```
 Traditional:  Human writes code → LLM helps
-SAJ:          LLM writes programs → LLM executes → LLM remembers
+SAJ:          LLM writes JSON programs → executes → remembers
 ```
 
-SAJ is a minimal, Turing-complete language expressed as JSON. The agent outputs structured programs, executes them, and builds up its own library over time.
+SAJ is a minimal, Turing-complete language expressed as JSON. The agent writes structured programs, executes them, and builds its own library over time.
 
 ## Install
 
