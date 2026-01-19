@@ -1,0 +1,21 @@
+{
+  "tasks": {
+    "dev": "deno run -A --watch --env --unstable-kv main.ts",
+    "start": "deno run -A --env --unstable-kv main.ts",
+    "deploy": "deno deploy --prod"
+  },
+  "imports": {
+    "@hono/hono": "jsr:@hono/hono@^4",
+    "@hono/hono/cors": "jsr:@hono/hono@^4/cors",
+    "@hono/hono/jwt": "jsr:@hono/hono@^4/jwt"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true
+  },
+  "unstable": ["kv"],
+  "deploy": {
+    "org": "recovery",
+    "app": "saj"
+  }
+}
