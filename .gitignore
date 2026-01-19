@@ -12,7 +12,7 @@ deno.lock
 _fresh/
 
 # Backend (deployed separately from laptop)
-backend/
+#backend/
 
 # Editor/IDE
 .claude/
