@@ -11,8 +11,8 @@ deno.lock
 # Fresh framework
 _fresh/
 
-# Backend env (not the code)
-backend/.env
+# Backend (deployed separately from laptop)
+backend/
 
 # Editor/IDE
 .claude/
