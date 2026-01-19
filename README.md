@@ -15,12 +15,12 @@ SAJ is a minimal, Turing-complete language expressed as JSON. The agent outputs 
 
 **macOS / Linux:**
 ```bash
-curl -fsSL https://saj.recovery.deno.net/install.sh | bash
+curl -fsSL https://saj2.deno.dev/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://saj.recovery.deno.net/install.ps1 | iex
+irm https://saj2.deno.dev/install.ps1 | iex
 ```
 
 Then authenticate:

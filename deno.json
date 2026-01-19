@@ -3,8 +3,8 @@
     "start": "deno run -A --env --unstable-kv saj.ts",
     "saj": "deno run -A --env --unstable-kv saj.ts",
     "saj:local": "deno run -A --env --unstable-kv saj.ts",
-    "saj:cloud": "SAJ_API_URL=https://saj.recovery.deno.net deno run -A --env --unstable-kv saj.ts",
-    "login": "SAJ_API_URL=https://saj.recovery.deno.net deno run -A --env --unstable-kv saj.ts login",
+    "saj:cloud": "SAJ_API_URL=https://saj2.deno.dev deno run -A --env --unstable-kv saj.ts",
+    "login": "SAJ_API_URL=https://saj2.deno.dev deno run -A --env --unstable-kv saj.ts login",
     "check": "deno check *.ts",
     "lint": "deno lint",
     "test": "deno test -A"

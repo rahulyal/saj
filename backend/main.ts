@@ -1009,7 +1009,7 @@ app.get("/browse", async (c: Context) => {
 
     <div class="install">
       <p style="margin:0 0 8px 0;color:#888">Install SAJ:</p>
-      <code>curl -fsSL https://saj.recovery.deno.net/install.sh | bash</code>
+      <code>curl -fsSL https://saj2.deno.dev/install.sh | bash</code>
     </div>
 
     ${programsHtml}

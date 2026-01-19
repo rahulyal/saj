@@ -90,9 +90,9 @@ backend/
 
 ## Key URLs
 
-- Production: https://saj.recovery.deno.net
-- Browse programs: https://saj.recovery.deno.net/browse
-- API: https://saj.recovery.deno.net/programs
+- Production: https://saj2.deno.dev
+- Browse programs: https://saj2.deno.dev/browse
+- API: https://saj2.deno.dev/programs
 
 ---
 
