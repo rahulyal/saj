@@ -652,7 +652,8 @@ async function run(
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: systemBlocks,
+      // deno-lint-ignore no-explicit-any
+      system: systemBlocks as any,
       tools: [cachedTool],
       messages,
     });
